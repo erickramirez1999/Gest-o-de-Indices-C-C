@@ -143,22 +143,35 @@ def inserir_tempo_tela(upload_id: int, mes_ano: str, registros: list[dict]) -> N
 # COBRANÇA — CONSULTA
 # ============================================================
 
+def _buscar_todos(tabela: str, mes_ano: str) -> list[dict]:
+    """Paginação para superar o limite de 1000 linhas do Supabase."""
+    sb = obter_conexao()
+    todos = []
+    page_size = 1000
+    offset = 0
+    while True:
+        r = sb.table(tabela).select("*").eq("mes_ano", mes_ano).range(
+            offset, offset + page_size - 1
+        ).execute()
+        if not r.data:
+            break
+        todos += r.data
+        if len(r.data) < page_size:
+            break
+        offset += page_size
+    return todos
+
+
 def buscar_acordos(mes_ano: str) -> list[dict]:
-    r = obter_conexao().table("dados_cobranca_acordo").select("*").eq(
-        "mes_ano", mes_ano).limit(10000).execute()
-    return r.data
+    return _buscar_todos("dados_cobranca_acordo", mes_ano)
 
 
 def buscar_baixas(mes_ano: str) -> list[dict]:
-    r = obter_conexao().table("dados_cobranca_baixa").select("*").eq(
-        "mes_ano", mes_ano).limit(10000).execute()
-    return r.data
+    return _buscar_todos("dados_cobranca_baixa", mes_ano)
 
 
 def buscar_performance(mes_ano: str) -> list[dict]:
-    r = obter_conexao().table("dados_cobranca_performance").select("*").eq(
-        "mes_ano", mes_ano).limit(10000).execute()
-    return r.data
+    return _buscar_todos("dados_cobranca_performance", mes_ano)
 
 
 # ============================================================
@@ -166,22 +179,15 @@ def buscar_performance(mes_ano: str) -> list[dict]:
 # ============================================================
 
 def buscar_liberacoes(mes_ano: str) -> list[dict]:
-    r = obter_conexao().table("dados_credito_liberacao").select("*").eq(
-        "mes_ano", mes_ano
-    ).limit(10000).execute()
-    return r.data
+    return _buscar_todos("dados_credito_liberacao", mes_ano)
 
 
 def buscar_limites(mes_ano: str) -> list[dict]:
-    r = obter_conexao().table("dados_credito_limite").select("*").eq(
-        "mes_ano", mes_ano).limit(10000).execute()
-    return r.data
+    return _buscar_todos("dados_credito_limite", mes_ano)
 
 
 def buscar_tempo_tela(mes_ano: str) -> list[dict]:
-    r = obter_conexao().table("dados_credito_tempo_tela").select("*").eq(
-        "mes_ano", mes_ano).limit(10000).execute()
-    return r.data
+    return _buscar_todos("dados_credito_tempo_tela", mes_ano)
 
 
 # ============================================================
