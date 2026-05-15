@@ -130,6 +130,7 @@ def _dashboard_limites(df: pd.DataFrame, periodo: str):
 
     cols_show = ["analista", "nome", "cod_parceiro", "limite_anterior", "novo_limite", "variacao", "data_inclusao"]
     cols_ex = [c for c in cols_show if c in df.columns]
+    df["variacao"] = pd.to_numeric(df["variacao"], errors="coerce").fillna(0)
     top20 = df.nlargest(20, "variacao")[cols_ex].copy()
     for col in ["limite_anterior", "novo_limite", "variacao"]:
         if col in top20.columns:

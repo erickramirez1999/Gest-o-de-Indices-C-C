@@ -265,25 +265,48 @@ def ler_liberacoes(bytes_arquivo: bytes, nome_arquivo: str) -> dict:
 
 
 def _limpar_bloco(df: pd.DataFrame, tipo: str) -> pd.DataFrame:
+    """
+    Estrutura real dos arquivos:
+    Linha 0: nome do bloco (Liberados / Negados / Passaram direto)
+    Linha 1: metadado (Emissão, Total de registros, Usuário)
+    Linha 2: cabeçalho real (Nro Único, Cód.Parceiro, Parceiro, TOP, Vlr Pedido...)
+    Linha 3+: dados reais
+    Última linha: total (soma dos valores — deve ser ignorada)
+    """
+    df = df.reset_index(drop=True)
+
+    # Acha linha do cabeçalho real (contém 'nro')
+    header_idx = None
     for i, row in df.iterrows():
-        vals = [str(v).lower() for v in row.values if pd.notna(v)]
-        if any("nro" in v for v in vals):
-            df.columns = [str(c).strip() for c in row.values]
-            df = df.iloc[i + 1:].reset_index(drop=True)
+        vals = [str(v).strip().lower() for v in row.values if pd.notna(v)]
+        if any(v.startswith("nro") for v in vals):
+            header_idx = i
             break
 
-    df = df.dropna(how="all")
-    col_nro = _achar_col(df, ["nro único", "nro unico"])
+    if header_idx is None:
+        return pd.DataFrame()
+
+    colunas = [str(c).strip() for c in df.iloc[header_idx].values]
+    df_dados = df.iloc[header_idx + 1:].copy()
+    df_dados.columns = colunas
+    df_dados = df_dados.reset_index(drop=True)
+
+    # Remove linhas sem Nro Único numérico válido (exclui totais e linhas vazias)
+    col_nro = _achar_col(df_dados, ["nro único", "nro unico"])
     if col_nro:
-        df = df[pd.to_numeric(df[col_nro], errors="coerce").notna()]
+        df_dados = df_dados[pd.to_numeric(df_dados[col_nro], errors="coerce").notna()].copy()
 
-    col_vlr = _achar_col(df, ["vlr pedido", "vlr. pedido"])
+    # Remove linha de total (última linha onde Vlr Pedido é soma — geralmente muito maior)
+    col_vlr = _achar_col(df_dados, ["vlr pedido", "vlr. pedido"])
     if col_vlr:
-        df = df[pd.to_numeric(df[col_vlr], errors="coerce").notna()]
+        df_dados = df_dados[pd.to_numeric(df_dados[col_vlr], errors="coerce").notna()].copy()
 
-    col_ev = _achar_col(df, ["evento"])
+    # Extrai analista do campo Eventos
+    col_ev = _achar_col(df_dados, ["evento"])
     if col_ev:
-        df["analista"] = df[col_ev].apply(_extrair_analista)
+        df_dados["analista"] = df_dados[col_ev].apply(_extrair_analista)
+    else:
+        df_dados["analista"] = ""
 
     tipo_map = {
         "passaram_direto": "DIRETO",
@@ -292,18 +315,18 @@ def _limpar_bloco(df: pd.DataFrame, tipo: str) -> pd.DataFrame:
     }
 
     resultado = []
-    for _, row in df.iterrows():
+    for _, row in df_dados.iterrows():
         resultado.append({
             "nro_unico": _int(_get(row, ["nro único", "nro unico"])),
-            "cod_parceiro": _int(_get(row, ["cód.parc.", "cod.parc.", "cód parceiro"])),
-            "parceiro": str(_get(row, ["parceiro", "nome", "devedor"]) or ""),
+            "cod_parceiro": _int(_get(row, ["cód.parceiro", "cód.parc.", "cod.parc.", "cód parceiro"])),
+            "parceiro": str(_get(row, ["parceiro"]) or ""),
             "top": str(_get(row, ["top"]) or ""),
             "vlr_pedido": _float(_get(row, ["vlr pedido", "vlr. pedido"])),
-            "cod_empresa": _int(_get(row, ["cód. empresa", "cod empresa"])),
+            "cod_empresa": _int(_get(row, ["cód. empresa", "cód.empresa", "cod empresa"])),
             "tipo": tipo_map.get(tipo, "DIRETO"),
             "analista": str(row.get("analista", "") or ""),
             "eventos": str(_get(row, ["evento", "eventos"]) or ""),
-            "data_liberacao": _parse_data(_get(row, ["data da liberação", "data liberacao"])),
+            "data_liberacao": _parse_data(_get(row, ["data da liberação", "data liberacao", "data da liberação"])),
         })
     return pd.DataFrame(resultado)
 
@@ -336,18 +359,50 @@ def _separar_blocos(df: pd.DataFrame) -> dict:
 # ============================================================
 
 def ler_aumento_limite(bytes_arquivo: bytes, nome_arquivo: str) -> dict:
+    """
+    Estrutura real:
+    Linha 0: 'arquivo'
+    Linha 1: metadado (Emissão, Total registros, Usuário)
+    Linha 2: cabeçalho (Cód.Parc., Nome, Dh. Incluão, Limite anterior, Novo limite, Variação, Dt revisão)
+    Linha 3+: dados — Dt revisão às vezes tem nome do analista em vez de data
+    """
     erros = []
     try:
         engine = "xlrd" if nome_arquivo.lower().endswith(".xls") else "openpyxl"
-        df = pd.read_excel(io.BytesIO(bytes_arquivo), header=1, engine=engine)
-        df.columns = [str(c).strip() for c in df.columns]
+        df = pd.read_excel(io.BytesIO(bytes_arquivo), header=None, engine=engine)
 
-        col0 = df.columns[0]
-        df = df.dropna(subset=[col0])
-        df = df[df[col0].astype(str).str.match(r"^\d+")]
+        # Acha linha do cabeçalho (contém 'Cód' ou 'Nome')
+        header_idx = None
+        for i, row in df.iterrows():
+            vals = [str(v).strip().lower() for v in row.values if pd.notna(v)]
+            if any("cód" in v or "cod" in v for v in vals) and any("nome" in v for v in vals):
+                header_idx = i
+                break
+
+        if header_idx is None:
+            return {"dados": pd.DataFrame(), "erros": [f"Cabeçalho não encontrado em '{nome_arquivo}'."]}
+
+        colunas = [str(c).strip() for c in df.iloc[header_idx].values]
+        df_dados = df.iloc[header_idx + 1:].copy()
+        df_dados.columns = colunas
+        df_dados = df_dados.reset_index(drop=True)
+
+        # Remove linhas sem código de parceiro numérico
+        col0 = colunas[0]
+        df_dados = df_dados.dropna(subset=[col0])
+        df_dados = df_dados[pd.to_numeric(df_dados[col0], errors="coerce").notna()]
 
         resultado = []
-        for _, row in df.iterrows():
+        for _, row in df_dados.iterrows():
+            # Dt revisão às vezes tem nome do analista
+            dt_revisao_raw = row.get("Dt revisão", row.get("Dt.revisão", ""))
+            analista = ""
+            data_revisao = None
+            if isinstance(dt_revisao_raw, str) and not dt_revisao_raw.replace("/", "").replace("-", "").isdigit():
+                analista = _normalizar_nome(dt_revisao_raw)
+            else:
+                data_revisao = _parse_data(dt_revisao_raw)
+
             resultado.append({
                 "cod_parceiro": _int(row.get("Cód.Parc.", row.get("Cód. Parc."))),
                 "nome": str(row.get("Nome", "") or ""),
@@ -355,8 +410,8 @@ def ler_aumento_limite(bytes_arquivo: bytes, nome_arquivo: str) -> dict:
                 "limite_anterior": _float(row.get("Limite anterior")),
                 "novo_limite": _float(row.get("Novo limite")),
                 "variacao": _float(row.get("Variação")),
-                "data_revisao": _parse_data(row.get("Dt revisão")),
-                "analista": _normalizar_nome(str(row.get("Usuário", "") or "")),
+                "data_revisao": data_revisao,
+                "analista": analista,
             })
 
         return {"dados": pd.DataFrame(resultado), "erros": erros}
