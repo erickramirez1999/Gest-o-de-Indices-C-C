@@ -9,7 +9,6 @@ import pandas as pd
 def _limpar_registro(r: dict) -> dict:
     """Converte tipos numpy/pandas para tipos Python nativos serializáveis."""
     def _v(v):
-        # pandas NA / NaT / None
         if v is None:
             return None
         try:
@@ -19,18 +18,19 @@ def _limpar_registro(r: dict) -> dict:
             pass
         # numpy/pandas numéricos
         if hasattr(v, 'item'):
-            val = v.item()
-            if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
-                return None
-            return val
+            v = v.item()
         if isinstance(v, float):
             if math.isnan(v) or math.isinf(v):
                 return None
+            # Converte floats inteiros (2.0, 3.0) para int
+            if v == int(v):
+                return int(v)
             return float(v)
         if isinstance(v, int):
             return int(v)
-        # StringDtype → str
-        return str(v) if not isinstance(v, (str, bool)) else v
+        if isinstance(v, bool):
+            return v
+        return str(v) if not isinstance(v, str) else v
     return {k: _v(val) for k, val in r.items()}
 
 
