@@ -139,15 +139,6 @@ def inserir_tempo_tela(upload_id: int, mes_ano: str, registros: list[dict]) -> N
     obter_conexao().table("dados_credito_tempo_tela").insert(limpos).execute()
 
 
-def inserir_limites(upload_id: int, mes_ano: str, registros: list[dict]) -> None:
-    if not registros:
-        return
-    for r in registros:
-        r["upload_id"] = upload_id
-        r["mes_ano"] = mes_ano
-    obter_conexao().table("dados_credito_limite").insert(registros).execute()
-
-
 # ============================================================
 # COBRANÇA — CONSULTA
 # ============================================================
@@ -176,19 +167,13 @@ def buscar_liberacoes(mes_ano: str) -> list[dict]:
     return r.data
 
 
-def inserir_tempo_tela(upload_id: int, mes_ano: str, registros: list[dict]) -> None:
-    if not registros:
-        return
-    for r in registros:
-        r["upload_id"] = upload_id
-        r["mes_ano"] = mes_ano
-    obter_conexao().table("dados_credito_tempo_tela").insert(registros).execute()
+def buscar_limites(mes_ano: str) -> list[dict]:
+    r = obter_conexao().table("dados_credito_limite").select("*").eq("mes_ano", mes_ano).execute()
+    return r.data
 
 
 def buscar_tempo_tela(mes_ano: str) -> list[dict]:
     r = obter_conexao().table("dados_credito_tempo_tela").select("*").eq("mes_ano", mes_ano).execute()
-    return r.data
-    r = obter_conexao().table("dados_credito_limite").select("*").eq("mes_ano", mes_ano).execute()
     return r.data
 
 
