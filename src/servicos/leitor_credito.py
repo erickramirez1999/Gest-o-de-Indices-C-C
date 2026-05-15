@@ -317,16 +317,10 @@ def _limpar_bloco(df: pd.DataFrame, tipo: str) -> pd.DataFrame:
     resultado = []
     for _, row in df_dados.iterrows():
         resultado.append({
-            "nro_unico": _int(_get(row, ["nro único", "nro unico"])),
-            "cod_parceiro": _int(_get(row, ["cód.parceiro", "cód.parc.", "cod.parc.", "cód parceiro"])),
-            "parceiro": str(_get(row, ["parceiro"]) or ""),
-            "top": str(_get(row, ["top"]) or ""),
             "vlr_pedido": _float(_get(row, ["vlr pedido", "vlr. pedido"])),
             "cod_empresa": _int(_get(row, ["cód. empresa", "cód.empresa", "cod empresa"])),
             "tipo": tipo_map.get(tipo, "DIRETO"),
             "analista": str(row.get("analista", "") or ""),
-            "eventos": str(_get(row, ["evento", "eventos"]) or ""),
-            "data_liberacao": _parse_data(_get(row, ["data da liberação", "data liberacao", "data da liberação"])),
         })
     return pd.DataFrame(resultado)
 

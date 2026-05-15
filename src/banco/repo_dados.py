@@ -195,28 +195,56 @@ def buscar_tempo_tela(mes_ano: str) -> list[dict]:
 # ============================================================
 
 def historico_cobranca_acordos() -> list[dict]:
-    r = obter_conexao().table("dados_cobranca_acordo").select(
-        "mes_ano,negociador,valor_total,cancelado,qtd_parcelas"
-    ).execute()
-    return r.data
+    sb = obter_conexao()
+    todos, offset = [], 0
+    while True:
+        r = sb.table("dados_cobranca_acordo").select(
+            "mes_ano,negociador,valor_total,cancelado,qtd_parcelas"
+        ).range(offset, offset + 999).execute()
+        if not r.data: break
+        todos += r.data
+        if len(r.data) < 1000: break
+        offset += 1000
+    return todos
 
 
 def historico_cobranca_baixas() -> list[dict]:
-    r = obter_conexao().table("dados_cobranca_baixa").select(
-        "mes_ano,cobrador,vlr_liquido,dias_atraso,faixa_aging"
-    ).execute()
-    return r.data
+    sb = obter_conexao()
+    todos, offset = [], 0
+    while True:
+        r = sb.table("dados_cobranca_baixa").select(
+            "mes_ano,cobrador,vlr_liquido,dias_atraso,faixa_aging"
+        ).range(offset, offset + 999).execute()
+        if not r.data: break
+        todos += r.data
+        if len(r.data) < 1000: break
+        offset += 1000
+    return todos
 
 
 def historico_credito_liberacoes() -> list[dict]:
-    r = obter_conexao().table("dados_credito_liberacao").select(
-        "mes_ano,tipo,vlr_pedido,analista"
-    ).execute()
-    return r.data
+    sb = obter_conexao()
+    todos, offset = [], 0
+    while True:
+        r = sb.table("dados_credito_liberacao").select(
+            "mes_ano,tipo,vlr_pedido,analista"
+        ).range(offset, offset + 999).execute()
+        if not r.data: break
+        todos += r.data
+        if len(r.data) < 1000: break
+        offset += 1000
+    return todos
 
 
 def historico_credito_limites() -> list[dict]:
-    r = obter_conexao().table("dados_credito_limite").select(
-        "mes_ano,variacao,novo_limite,analista"
-    ).execute()
-    return r.data
+    sb = obter_conexao()
+    todos, offset = [], 0
+    while True:
+        r = sb.table("dados_credito_limite").select(
+            "mes_ano,variacao,novo_limite,analista"
+        ).range(offset, offset + 999).execute()
+        if not r.data: break
+        todos += r.data
+        if len(r.data) < 1000: break
+        offset += 1000
+    return todos

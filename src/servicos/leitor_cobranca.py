@@ -37,7 +37,6 @@ from typing import Optional
 def ler_multiplos_arquivos_cobranca(arquivos: list[tuple[bytes, str]]) -> dict:
     resultado = {
         "acordos": pd.DataFrame(),
-        "ocorrencias": pd.DataFrame(),
         "baixas": pd.DataFrame(),
         "performance": pd.DataFrame(),
         "erros": [],
@@ -51,7 +50,7 @@ def ler_multiplos_arquivos_cobranca(arquivos: list[tuple[bytes, str]]) -> dict:
         if tipo == "DASHBOARD":
             r = _ler_dashboard(bytes_arq, nome)
             resultado["erros"] += r["erros"]
-            for chave in ["acordos", "ocorrencias", "baixas", "performance"]:
+            for chave in ["acordos", "baixas", "performance"]:
                 if not r[chave].empty:
                     if resultado[chave].empty:
                         resultado[chave] = r[chave]
@@ -106,7 +105,7 @@ def _detectar_tipo(bytes_arq: bytes, nome: str) -> str:
 def _ler_dashboard(bytes_arq: bytes, nome: str) -> dict:
     erros = []
     resultado = {
-        "acordos": pd.DataFrame(), "ocorrencias": pd.DataFrame(),
+        "acordos": pd.DataFrame(), 
         "baixas": pd.DataFrame(), "performance": pd.DataFrame(),
         "erros": erros,
     }
@@ -218,9 +217,7 @@ def _ler_acordos_detalhados(df: pd.DataFrame) -> pd.DataFrame:
 
         resultado.append({
             "negociador": neg,
-            "processo": str(processo),
             "devedor": str(primeira.get(col_dev or "") or ""),
-            "cnpj": str(primeira.get(col_cnpj or "") or ""),
             "data_acordo": _parse_data(primeira.get(col_data)),
             "forma_pagto": str(primeira.get(col_forma or "") or ""),
             "qtd_parcelas": qtd_parcelas,
@@ -228,9 +225,6 @@ def _ler_acordos_detalhados(df: pd.DataFrame) -> pd.DataFrame:
             "valor_total": valor_total,
             "status": str(primeira.get(col_status or "") or ""),
             "cancelado": "CANCEL" in str(primeira.get(col_status or "") or "").upper(),
-            "valor_capital": _float(primeira.get(col_cap)) if col_cap else None,
-            "valor_juros": _float(primeira.get(col_jur)) if col_jur else None,
-            "valor_multa": _float(primeira.get(col_mul)) if col_mul else None,
         })
     return pd.DataFrame(resultado)
 
@@ -360,16 +354,11 @@ def _ler_baixas(df: pd.DataFrame) -> pd.DataFrame:
 
         resultado.append({
             "cobrador": cobrador,
-            "parceiro": str(row.get(col_parc or "", "") or ""),
-            "vencimento": _parse_data(row.get(col_venc)),
-            "data_baixa": _parse_data(row.get(col_baixa)),
             "dias_atraso": _int(row.get(col_dias)),
             "vlr_desdobrado": _float(row.get(col_desdob)),
             "vlr_liquido": _float(row.get(col_liq)),
             "juros_multa": _float(row.get(col_jm)),
             "faixa_aging": faixa,
-            "tipo_titulo": str(row.get(col_tipo or "", "") or ""),
-            "categoria": str(row.get(col_cat or "", "") or ""),
         })
     return pd.DataFrame(resultado)
 

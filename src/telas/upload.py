@@ -82,11 +82,10 @@ def _upload_cobranca(usuario):
             for proc in resultado["arquivos_processados"]:
                 st.caption(f"✓ {proc}")
 
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3 = st.columns(3)
             c1.metric("Acordos", len(resultado["acordos"]))
             c2.metric("Baixas", len(resultado["baixas"]))
             c3.metric("Cobradores (perf.)", len(resultado["performance"]))
-            c4.metric("Ocorrências", len(resultado["ocorrencias"]))
 
             if resultado["erros"]:
                 for e in resultado["erros"]:

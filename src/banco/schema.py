@@ -43,25 +43,20 @@ CREATE TABLE IF NOT EXISTS upload_mes (
 
 CREATE INDEX IF NOT EXISTS idx_upload_mes_area ON upload_mes(area, mes_ano);
 
--- COBRANÇA: ACORDOS (origem: abas "Acordo e quebra" + "Resumo Acordos")
+-- COBRANÇA: ACORDOS (origem: aba "Acordos realizados detalhados")
 CREATE TABLE IF NOT EXISTS dados_cobranca_acordo (
     id BIGSERIAL PRIMARY KEY,
     upload_id BIGINT NOT NULL REFERENCES upload_mes(id) ON DELETE CASCADE,
     mes_ano TEXT NOT NULL,
     negociador TEXT,
-    processo TEXT,
     devedor TEXT,
-    cnpj TEXT,
     data_acordo DATE,
     forma_pagto TEXT,
     qtd_parcelas INTEGER,
     valor_parcela NUMERIC,
     valor_total NUMERIC,
     status TEXT,
-    cancelado BOOLEAN DEFAULT FALSE,
-    valor_capital NUMERIC,
-    valor_juros NUMERIC,
-    valor_multa NUMERIC
+    cancelado BOOLEAN DEFAULT FALSE
 );
 
 CREATE INDEX IF NOT EXISTS idx_acord_mes ON dados_cobranca_acordo(mes_ano);
@@ -73,16 +68,11 @@ CREATE TABLE IF NOT EXISTS dados_cobranca_baixa (
     upload_id BIGINT NOT NULL REFERENCES upload_mes(id) ON DELETE CASCADE,
     mes_ano TEXT NOT NULL,
     cobrador TEXT,
-    parceiro TEXT,
-    vencimento DATE,
-    data_baixa DATE,
     dias_atraso INTEGER,
     vlr_desdobrado NUMERIC,
     vlr_liquido NUMERIC,
     juros_multa NUMERIC,
-    faixa_aging TEXT,
-    tipo_titulo TEXT,
-    categoria TEXT
+    faixa_aging TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_baixa_mes ON dados_cobranca_baixa(mes_ano);
@@ -100,9 +90,7 @@ CREATE TABLE IF NOT EXISTS dados_cobranca_performance (
     ocorrencias_media_dia NUMERIC,
     acordos_media_dia NUMERIC,
     valor_medio_diario NUMERIC,
-    total_acordos_valor NUMERIC,
-    -- detalhamento diário (JSON)
-    detalhe_diario JSONB
+    total_acordos_valor NUMERIC
 );
 
 CREATE INDEX IF NOT EXISTS idx_perf_mes ON dados_cobranca_performance(mes_ano);
@@ -112,16 +100,10 @@ CREATE TABLE IF NOT EXISTS dados_credito_liberacao (
     id BIGSERIAL PRIMARY KEY,
     upload_id BIGINT NOT NULL REFERENCES upload_mes(id) ON DELETE CASCADE,
     mes_ano TEXT NOT NULL,
-    nro_unico BIGINT,
-    cod_parceiro BIGINT,
-    parceiro TEXT,
-    top TEXT,
     vlr_pedido NUMERIC,
     cod_empresa INTEGER,
     tipo TEXT NOT NULL CHECK(tipo IN ('DIRETO', 'LIBERADO', 'NEGADO')),
-    analista TEXT,
-    eventos TEXT,
-    data_liberacao DATE
+    analista TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_lib_mes ON dados_credito_liberacao(mes_ano);
