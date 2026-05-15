@@ -4,21 +4,33 @@ from typing import Optional
 from src.banco.conexao import obter_conexao
 
 import math
+import pandas as pd
 
 def _limpar_registro(r: dict) -> dict:
     """Converte tipos numpy/pandas para tipos Python nativos serializáveis."""
     def _v(v):
+        # pandas NA / NaT / None
         if v is None:
             return None
-        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
-            return None
+        try:
+            if pd.isna(v):
+                return None
+        except (TypeError, ValueError):
+            pass
+        # numpy/pandas numéricos
         if hasattr(v, 'item'):
-            return v.item()
+            val = v.item()
+            if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
+                return None
+            return val
         if isinstance(v, float):
+            if math.isnan(v) or math.isinf(v):
+                return None
             return float(v)
         if isinstance(v, int):
             return int(v)
-        return v
+        # StringDtype → str
+        return str(v) if not isinstance(v, (str, bool)) else v
     return {k: _v(val) for k, val in r.items()}
 
 
