@@ -144,17 +144,20 @@ def inserir_tempo_tela(upload_id: int, mes_ano: str, registros: list[dict]) -> N
 # ============================================================
 
 def buscar_acordos(mes_ano: str) -> list[dict]:
-    r = obter_conexao().table("dados_cobranca_acordo").select("*").eq("mes_ano", mes_ano).execute()
+    r = obter_conexao().table("dados_cobranca_acordo").select("*").eq(
+        "mes_ano", mes_ano).limit(10000).execute()
     return r.data
 
 
 def buscar_baixas(mes_ano: str) -> list[dict]:
-    r = obter_conexao().table("dados_cobranca_baixa").select("*").eq("mes_ano", mes_ano).execute()
+    r = obter_conexao().table("dados_cobranca_baixa").select("*").eq(
+        "mes_ano", mes_ano).limit(10000).execute()
     return r.data
 
 
 def buscar_performance(mes_ano: str) -> list[dict]:
-    r = obter_conexao().table("dados_cobranca_performance").select("*").eq("mes_ano", mes_ano).execute()
+    r = obter_conexao().table("dados_cobranca_performance").select("*").eq(
+        "mes_ano", mes_ano).limit(10000).execute()
     return r.data
 
 
@@ -163,17 +166,21 @@ def buscar_performance(mes_ano: str) -> list[dict]:
 # ============================================================
 
 def buscar_liberacoes(mes_ano: str) -> list[dict]:
-    r = obter_conexao().table("dados_credito_liberacao").select("*").eq("mes_ano", mes_ano).execute()
+    r = obter_conexao().table("dados_credito_liberacao").select("*").eq(
+        "mes_ano", mes_ano
+    ).limit(10000).execute()
     return r.data
 
 
 def buscar_limites(mes_ano: str) -> list[dict]:
-    r = obter_conexao().table("dados_credito_limite").select("*").eq("mes_ano", mes_ano).execute()
+    r = obter_conexao().table("dados_credito_limite").select("*").eq(
+        "mes_ano", mes_ano).limit(10000).execute()
     return r.data
 
 
 def buscar_tempo_tela(mes_ano: str) -> list[dict]:
-    r = obter_conexao().table("dados_credito_tempo_tela").select("*").eq("mes_ano", mes_ano).execute()
+    r = obter_conexao().table("dados_credito_tempo_tela").select("*").eq(
+        "mes_ano", mes_ano).limit(10000).execute()
     return r.data
 
 
