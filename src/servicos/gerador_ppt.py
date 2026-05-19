@@ -92,16 +92,147 @@ def _rgb(hex6: str):
     return RGBColor.from_string(hex6)
 
 
-def _grafico_para_bytes(fig) -> bytes:
-    """Exporta figura Plotly como PNG em memória."""
+def _grafico_para_bytes(fig) -> Optional[bytes]:
+    """
+    Exporta figura Plotly como PNG usando matplotlib como fallback.
+    Funciona sem kaleido no Streamlit Cloud.
+    """
+    # Tenta kaleido primeiro (mais fiel)
     try:
         return fig.to_image(format="png", width=900, height=420, scale=2)
     except Exception:
-        try:
-            import plotly.io as pio
-            return pio.to_image(fig, format="png", width=900, height=420)
-        except Exception:
-            return None
+        pass
+
+    # Fallback: converte Plotly → matplotlib → PNG
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as mpatches
+        from matplotlib.figure import Figure
+
+        data = fig.data
+        layout = fig.layout
+        title = layout.title.text if layout.title and layout.title.text else ""
+
+        fig_mpl, ax = plt.subplots(figsize=(10, 4.5))
+        fig_mpl.patch.set_facecolor("white")
+        ax.set_facecolor("white")
+
+        plotted = False
+        for trace in data:
+            tipo = type(trace).__name__.lower()
+
+            if "bar" in tipo:
+                x = list(trace.x) if trace.x is not None else []
+                y = list(trace.y) if trace.y is not None else []
+                if not x or not y:
+                    continue
+                colors = _extrair_cor_plotly(trace)
+                orientation = getattr(trace, "orientation", "v")
+                if orientation == "h":
+                    bars = ax.barh(x, y, color=colors, edgecolor="white", linewidth=0.5)
+                    for bar, val in zip(bars, y):
+                        if val and val > 0:
+                            ax.text(bar.get_width() * 1.01, bar.get_y() + bar.get_height()/2,
+                                   _fmt_val(val), va='center', ha='left', fontsize=8)
+                else:
+                    bars = ax.bar(x, y, color=colors, edgecolor="white", linewidth=0.5)
+                    for bar, val in zip(bars, y):
+                        if val and val > 0:
+                            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() * 1.01,
+                                   _fmt_val(val), ha='center', va='bottom', fontsize=8)
+                plotted = True
+
+            elif "pie" in tipo or "donut" in tipo:
+                labels = list(trace.labels) if trace.labels is not None else []
+                values = list(trace.values) if trace.values is not None else []
+                if not labels or not values:
+                    continue
+                cores_pizza = ["#0F8C3B", "#0071FE", "#DC3545", "#FAC318", "#041747"]
+                hole = getattr(trace, "hole", 0) or 0
+                wedges, texts, autotexts = ax.pie(
+                    values, labels=labels,
+                    colors=cores_pizza[:len(values)],
+                    autopct='%1.1f%%', startangle=90,
+                    wedgeprops=dict(width=1-hole) if hole > 0 else {},
+                    textprops={"fontsize": 9},
+                )
+                plotted = True
+
+            elif "scatter" in tipo:
+                x = list(trace.x) if trace.x is not None else []
+                y = list(trace.y) if trace.y is not None else []
+                if not x or not y:
+                    continue
+                mode = getattr(trace, "mode", "lines") or "lines"
+                marker_color = "#0071FE"
+                try:
+                    mc = trace.marker.color if trace.marker and trace.marker.color else None
+                    if mc and isinstance(mc, str) and mc.startswith("#"):
+                        marker_color = mc
+                except Exception:
+                    pass
+                if "lines" in mode:
+                    ax.plot(x, y, color=marker_color, linewidth=2, marker="o" if "markers" in mode else "")
+                elif "markers" in mode:
+                    ax.scatter(x, y, color=marker_color, s=40)
+                plotted = True
+
+        if not plotted:
+            ax.text(0.5, 0.5, "Sem dados", ha="center", va="center",
+                   transform=ax.transAxes, fontsize=12, color="#888")
+
+        if title:
+            ax.set_title(title, fontsize=11, fontweight="bold", pad=10, color="#041747")
+
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_color("#DDD")
+        ax.spines["bottom"].set_color("#DDD")
+        ax.tick_params(labelsize=8, colors="#555")
+        ax.yaxis.grid(True, color="#EEE", linewidth=0.5)
+        ax.set_axisbelow(True)
+
+        plt.tight_layout(pad=1.5)
+
+        buf = io.BytesIO()
+        fig_mpl.savefig(buf, format="png", dpi=150, bbox_inches="tight",
+                       facecolor="white", edgecolor="none")
+        plt.close(fig_mpl)
+        buf.seek(0)
+        return buf.read()
+
+    except Exception:
+        return None
+
+
+def _extrair_cor_plotly(trace) -> list:
+    """Extrai cores de um trace Plotly para uso no matplotlib."""
+    try:
+        mc = trace.marker.color if trace.marker else None
+        if isinstance(mc, str) and mc.startswith("#"):
+            return [mc]
+        if isinstance(mc, (list, tuple)):
+            return [c if (isinstance(c, str) and c.startswith("#")) else "#0071FE" for c in mc]
+    except Exception:
+        pass
+    return ["#0071FE"]
+
+
+def _fmt_val(v) -> str:
+    """Formata valor para rótulo nos gráficos."""
+    try:
+        f = float(v)
+        if f >= 1_000_000:
+            return f"R$ {f/1_000_000:.1f}M"
+        if f >= 1_000:
+            return f"R$ {f/1_000:.0f}K"
+        if f < 10:
+            return f"{f:.2f}"
+        return f"R$ {f:,.0f}".replace(",", ".")
+    except Exception:
+        return str(v)
 
 
 def _inserir_grafico(slide, fig, left, top, width, height):
