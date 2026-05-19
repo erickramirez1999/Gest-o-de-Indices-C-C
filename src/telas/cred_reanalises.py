@@ -136,3 +136,22 @@ def _dashboard_limites(df: pd.DataFrame, periodo: str):
         if col in top20.columns:
             top20[col] = top20[col].apply(formatar_brl)
     st.dataframe(top20, use_container_width=True, hide_index=True)
+
+    # Exportar PPT
+    st.markdown("---")
+    _botao_ppt_reanalises(df, nome_mes(mes_sel))
+
+
+def _botao_ppt_reanalises(df: pd.DataFrame, periodo: str):
+    from src.servicos.gerador_ppt import gerar_ppt_reanalises
+    if st.button("📊 Exportar PPT", key="ppt_reanalises"):
+        with st.spinner("Gerando apresentação..."):
+            dados = {"df_limites": df}
+            ppt_bytes = gerar_ppt_reanalises(dados, periodo)
+        st.download_button(
+            "⬇ Baixar Apresentação",
+            data=ppt_bytes,
+            file_name=f"LLE_Reanalises_{periodo.replace('/', '-')}.pptx",
+            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            key="dl_ppt_reanalises",
+        )

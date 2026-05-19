@@ -197,7 +197,7 @@ def _dashboard_liberacoes(df: pd.DataFrame, df_ant: pd.DataFrame | None, periodo
 def _botao_ppt_credito(atual: dict, df: pd.DataFrame, periodo: str):
     from src.servicos.gerador_ppt import gerar_ppt_credito
 
-    df_lib = df[df["tipo"] == "LIBERADO"]
+    df_lib = df[df["tipo"] == "LIBERADO"] if "tipo" in df.columns else df
     ranking = []
     if "analista" in df_lib.columns:
         r = (
@@ -207,10 +207,13 @@ def _botao_ppt_credito(atual: dict, df: pd.DataFrame, periodo: str):
             .sort_values("qtd", ascending=False)
             .reset_index()
         )
-        ranking = r.rename(columns={"analista": "analista"}).to_dict("records")
+        ranking = r.to_dict("records")
 
     dados = {
         "liberacoes": {**atual, "ranking_analistas": ranking},
+        "df_liberacoes": df,
+        "limites": {},
+        "df_limites": pd.DataFrame(),
     }
     if st.button("📊 Exportar PPT", key="ppt_cred"):
         with st.spinner("Gerando apresentação..."):

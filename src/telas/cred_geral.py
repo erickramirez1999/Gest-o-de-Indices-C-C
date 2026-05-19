@@ -186,16 +186,15 @@ def renderizar_geral_credito(usuario):
 def _botao_ppt_geral_credito(meses: list):
     from src.servicos.gerador_ppt import gerar_ppt_geral
     from src.banco import repo_dados
-    import streamlit as st
+    import pandas as pd
 
-    if st.button("📊 Exportar PPT Geral — Crédito", key="ppt_geral_cred"):
+    if st.button("📊 Exportar PPT Geral — Análise Completa de Crédito", key="ppt_geral_cred"):
         with st.spinner("Gerando apresentação consolidada..."):
             dados_cred = []
             for m in meses:
                 mes_ano = m["mes_ano"]
                 liberacoes = repo_dados.buscar_liberacoes(mes_ano)
                 limites = repo_dados.buscar_limites(mes_ano)
-                import pandas as pd
                 df_lib = pd.DataFrame(liberacoes) if liberacoes else pd.DataFrame()
                 df_lim = pd.DataFrame(limites) if limites else pd.DataFrame()
 
@@ -205,23 +204,21 @@ def _botao_ppt_geral_credito(meses: list):
                 qtd_n = len(df_lib[df_lib["tipo"] == "NEGADO"]) if not df_lib.empty and "tipo" in df_lib.columns else 0
                 vlr_ap = float(df_lib[df_lib["tipo"].isin(["DIRETO", "LIBERADO"])]["vlr_pedido"].sum()) if not df_lib.empty and "vlr_pedido" in df_lib.columns else 0
                 vlr_neg = float(df_lib[df_lib["tipo"] == "NEGADO"]["vlr_pedido"].sum()) if not df_lib.empty and "vlr_pedido" in df_lib.columns else 0
+                var_lim = float(df_lim["variacao"].sum()) if not df_lim.empty and "variacao" in df_lim.columns else 0
 
                 dados_cred.append({
                     "mes_label": nome_mes(mes_ano),
                     "liberacoes": {
                         "total": total,
-                        "qtd_direto": qtd_d,
-                        "qtd_liberados": qtd_l,
-                        "qtd_negados": qtd_n,
+                        "qtd_direto": qtd_d, "qtd_liberados": qtd_l, "qtd_negados": qtd_n,
                         "pct_direto": qtd_d / total * 100 if total else 0,
                         "pct_liberados": qtd_l / total * 100 if total else 0,
                         "pct_negados": qtd_n / total * 100 if total else 0,
-                        "vlr_aprovado": vlr_ap,
-                        "vlr_negado": vlr_neg,
+                        "vlr_aprovado": vlr_ap, "vlr_negado": vlr_neg,
                     },
                     "limites": {
                         "total": len(df_lim),
-                        "total_variacao": float(df_lim["variacao"].sum()) if not df_lim.empty and "variacao" in df_lim.columns else 0,
+                        "total_variacao": var_lim,
                     },
                     "df_liberacoes": df_lib,
                     "df_limites": df_lim,
@@ -230,8 +227,8 @@ def _botao_ppt_geral_credito(meses: list):
             ppt_bytes = gerar_ppt_geral([], dados_cred)
 
         st.download_button(
-            "⬇ Baixar PPT Geral Crédito",
+            "⬇ Baixar PPT Geral — Crédito",
             data=ppt_bytes,
-            file_name="LLE_Geral_Credito.pptx",
+            file_name="LLE_Analise_Geral_Credito.pptx",
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         )
