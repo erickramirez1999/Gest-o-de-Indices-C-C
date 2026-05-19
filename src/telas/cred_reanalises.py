@@ -139,7 +139,7 @@ def _dashboard_limites(df: pd.DataFrame, periodo: str):
 
     # Exportar PPT
     st.markdown("---")
-    _botao_ppt_reanalises(df, nome_mes(mes_sel))
+    _botao_ppt_reanalises(df, periodo)
 
 
 def _botao_ppt_reanalises(df: pd.DataFrame, periodo: str):
