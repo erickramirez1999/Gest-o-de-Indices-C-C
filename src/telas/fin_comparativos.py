@@ -224,21 +224,69 @@ def renderizar_fin_comparativos(usuario):
 
     st.markdown("---")
 
-    # ─── Por Fornecedor (Top 10) ─────────────────────────
+    # ─── Por Fornecedor (Top 15) — agrupa por CNPJ pra evitar duplicações ─────
     st.markdown(f"### 🏢 Top Fornecedores — {ano_foco}")
 
-    por_forn = (df_ano.groupby(["nome_fornecedor", "cnpj_fornecedor"])["valor"]
+    # Agrupa por CNPJ (chave única) e pega o nome MAIS CURTO (mais limpo) como display
+    df_ano_forn = df_ano.copy()
+    df_ano_forn["nome_len"] = df_ano_forn["nome_fornecedor"].fillna("").str.len()
+    # Pra cada CNPJ, escolhe o nome mais curto (provavelmente o limpo)
+    nomes_por_cnpj = (df_ano_forn.sort_values("nome_len")
+                      .groupby("cnpj_fornecedor")["nome_fornecedor"]
+                      .first().to_dict())
+
+    por_forn = (df_ano.groupby("cnpj_fornecedor")["valor"]
                 .sum().sort_values(ascending=False).head(15))
 
     rows = []
-    for (nome, cnpj), val in por_forn.items():
+    for cnpj, val in por_forn.items():
         rows.append({
-            "Fornecedor": nome,
-            "CNPJ": cnpj,
+            "Fornecedor": nomes_por_cnpj.get(cnpj, "—"),
+            "CNPJ": cnpj or "—",
             "Total": formatar_brl(val),
             "%": f"{val / total_ano * 100:.1f}%" if total_ano else "0%",
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+    # ─── Fornecedores mês a mês (tabela cruzada) ─────────────────────────
+    st.markdown(f"### 🔁 Fornecedores mês a mês — {ano_foco}")
+    st.caption("Cada linha é um fornecedor. Colunas são os meses. Pra comparar valores.")
+
+    if df_ano.empty:
+        st.info("Sem dados pra esse ano.")
+    else:
+        meses_lista = sorted(df_ano["mes_ano"].unique())
+
+        # Ordena por total desc, agrupando por CNPJ (mesma lógica do Top Fornecedores)
+        cnpjs_ordenados = (df_ano.groupby("cnpj_fornecedor")["valor"]
+                           .sum().sort_values(ascending=False).index.tolist())
+
+        linhas_tabela = []
+        for cnpj in cnpjs_ordenados:
+            lancs = df_ano[df_ano["cnpj_fornecedor"] == cnpj]
+            por_mes = lancs.groupby("mes_ano")["valor"].sum().to_dict()
+            row = {"Fornecedor": nomes_por_cnpj.get(cnpj, "—")}
+            total = 0.0
+            for m in meses_lista:
+                v = float(por_mes.get(m, 0))
+                row[f"{nome_mes(m)[:3]}/{m[2:4]}"] = formatar_brl(v) if v > 0 else "—"
+                total += v
+            row["Total"] = formatar_brl(total)
+            linhas_tabela.append(row)
+
+        st.dataframe(pd.DataFrame(linhas_tabela), use_container_width=True, hide_index=True)
+
+        # Total por mês
+        totais = {"Fornecedor": "**TOTAL DO MÊS**"}
+        soma_geral = 0.0
+        for m in meses_lista:
+            t = df_ano[df_ano["mes_ano"] == m]["valor"].sum()
+            totais[f"{nome_mes(m)[:3]}/{m[2:4]}"] = formatar_brl(t)
+            soma_geral += t
+        totais["Total"] = formatar_brl(soma_geral)
+        st.dataframe(pd.DataFrame([totais]), use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
