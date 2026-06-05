@@ -6,8 +6,12 @@ Pra casos onde o PDF não pode ser lido automaticamente:
   - Despesas sem NF (aluguel, salários, taxas)
   - Formatos de NF que o parser não reconhece
 
-O usuário preenche tudo no formulário. Se o CNPJ informado já está
-cadastrado, o nome e categoria são preenchidos automaticamente.
+Fluxo simples e direto:
+  1. Preenche os dados (mês, fornecedor, valor, etc)
+  2. Sistema verifica o CNPJ:
+     - Se já existe → reusa o cadastro existente (preenche sugestões)
+     - Se não existe → cadastra automaticamente com o que você digitou
+  3. Grava o lançamento
 """
 from __future__ import annotations
 
@@ -21,10 +25,8 @@ from src.utils.formatadores import formatar_brl, nome_mes
 from src.utils.marca import AZUL_ESCURO
 
 
-# Empresas LLE conhecidas (mesma lista do parser)
 EMPRESAS_LLE = ["PISA", "KING", "TRIO", "OUTRO"]
 
-# Categorias disponíveis (mesmas heurísticas do parser)
 CATEGORIAS_PADRAO = [
     "PROTESTO", "SOFTWARE", "HOSPEDAGEM", "CONTABIL", "JURÍDICO",
     "MARKETING", "CONSULTORIA", "TRANSPORTE", "TELECOM", "ALUGUEL",
@@ -49,12 +51,11 @@ def renderizar_fin_manual(usuario):
         unsafe_allow_html=True,
     )
     st.caption(
-        "Cadastre um gasto digitando os dados. Use isso pra boletos sem NF "
-        "eletrônica, despesas recorrentes (aluguel, salários) ou casos em "
-        "que o upload PDF não reconheceu corretamente."
+        "Cadastre um gasto digitando os dados. Se o CNPJ ainda não estiver "
+        "cadastrado, o fornecedor é criado automaticamente com o que você "
+        "digitar aqui."
     )
 
-    # Mensagem persistente
     msg = st.session_state.pop("fin_manual_msg", None)
     if msg:
         if msg["tipo"] == "sucesso":
@@ -64,7 +65,7 @@ def renderizar_fin_manual(usuario):
         else:
             st.error(msg["texto"])
 
-    # ─── Mês de competência ─────────────────────────
+    # ─── Bloco 1: Competência ─────────────────────────
     st.markdown("### 1️⃣ Competência")
     col_mes, col_ano = st.columns(2)
     with col_mes:
@@ -88,104 +89,80 @@ def renderizar_fin_manual(usuario):
 
     mes_ano = f"{ano:04d}-{mes:02d}"
 
-    # ─── Fornecedor ─────────────────────────
+    # ─── Bloco 2: Fornecedor ─────────────────────────
     st.markdown("### 2️⃣ Fornecedor")
-
-    fornecedores = repo_financeiro.listar_fornecedores()
-
-    modo_forn = st.radio(
-        "Como informar o fornecedor?",
-        ["🔍 Buscar cadastrado", "🆕 Cadastrar novo"],
-        horizontal=True,
-        key="fin_man_modo_forn",
+    st.caption(
+        "Digite o CNPJ. Se já estiver cadastrado, os campos abaixo vêm preenchidos. "
+        "Senão, preencha tudo — o fornecedor é cadastrado automaticamente ao gravar."
     )
 
-    cnpj_forn = ""
-    nome_forn = ""
-    categoria = "OUTROS"
+    col_cnpj, col_nome = st.columns([1, 2])
+    with col_cnpj:
+        cnpj_raw = st.text_input(
+            "CNPJ *",
+            key="fin_man_cnpj",
+            placeholder="00.000.000/0000-00",
+        )
+        cnpj_forn = _formatar_cnpj(cnpj_raw) if cnpj_raw else ""
+        if cnpj_raw and cnpj_forn != cnpj_raw.strip():
+            st.caption(f"📌 Formatado: `{cnpj_forn}`")
+
+    # Verifica se já existe pra preencher sugestões (mas SEM travar nada)
     forn_existente = None
-    municipio = ""
-    uf = ""
+    sugestao_nome = ""
+    sugestao_categoria = "OUTROS"
+    sugestao_municipio = ""
+    sugestao_uf = ""
 
-    if modo_forn == "🔍 Buscar cadastrado":
-        if not fornecedores:
-            st.warning(
-                "⚠️ Nenhum fornecedor cadastrado ainda. "
-                "Use **🆕 Cadastrar novo** ou suba uma NF em PDF primeiro."
-            )
-        else:
-            opcoes = {
-                f"{f['nome']} — {f['cnpj']} ({f.get('categoria') or 'OUTROS'})": f
-                for f in fornecedores
-            }
-            escolha = st.selectbox(
-                "Selecione o fornecedor",
-                list(opcoes.keys()),
-                key="fin_man_forn_sel",
-            )
-            forn_existente = opcoes[escolha]
-            cnpj_forn = forn_existente["cnpj"]
-            nome_forn = forn_existente["nome"]
-            categoria = forn_existente.get("categoria") or "OUTROS"
-            municipio = forn_existente.get("municipio") or ""
-            uf = forn_existente.get("uf") or ""
+    if cnpj_forn and len(re.sub(r"\D", "", cnpj_forn)) == 14:
+        forn_existente = repo_financeiro.buscar_fornecedor_por_cnpj(cnpj_forn)
+        if forn_existente:
+            sugestao_nome = forn_existente["nome"]
+            sugestao_categoria = forn_existente.get("categoria") or "OUTROS"
+            sugestao_municipio = forn_existente.get("municipio") or ""
+            sugestao_uf = forn_existente.get("uf") or ""
 
-            col_i1, col_i2, col_i3 = st.columns(3)
-            col_i1.metric("CNPJ", cnpj_forn)
-            col_i2.metric("Categoria", categoria)
-            col_i3.metric("Local", f"{municipio}/{uf}" if municipio else "—")
-    else:
-        # Cadastrar novo fornecedor
-        col_cnpj, col_nome = st.columns([1, 2])
-        with col_cnpj:
-            cnpj_raw = st.text_input(
-                "CNPJ * (só números ou formatado)",
-                key="fin_man_cnpj",
-                placeholder="00.000.000/0000-00",
-            )
-            cnpj_forn = _formatar_cnpj(cnpj_raw) if cnpj_raw else ""
-            if cnpj_raw and cnpj_forn != cnpj_raw.strip():
-                st.caption(f"Formatado: `{cnpj_forn}`")
+    if forn_existente:
+        st.success(
+            f"✓ Esse CNPJ já está cadastrado como **{forn_existente['nome']}**. "
+            f"Os campos abaixo vieram do cadastro existente — você pode mudar se quiser."
+        )
 
-        with col_nome:
-            nome_forn = st.text_input(
-                "Nome do fornecedor *",
-                key="fin_man_nome",
-                placeholder="Razão social",
-            ).upper()
+    with col_nome:
+        nome_forn = st.text_input(
+            "Nome / Razão Social *",
+            value=sugestao_nome,
+            key="fin_man_nome",
+            placeholder="Ex: ABC SERVIÇOS LTDA",
+        ).upper().strip()
 
-        # Se o CNPJ digitado já existe, avisa pra usar a busca
-        if cnpj_forn and len(re.sub(r"\D", "", cnpj_forn)) == 14:
-            existe = repo_financeiro.buscar_fornecedor_por_cnpj(cnpj_forn)
-            if existe:
-                st.info(
-                    f"ℹ️ Esse CNPJ **já está cadastrado** como "
-                    f"`{existe['nome']}` (categoria: {existe.get('categoria') or 'OUTROS'}). "
-                    f"O lançamento vai usar esse cadastro existente."
-                )
-                forn_existente = existe
-                nome_forn = existe["nome"]
-                categoria = existe.get("categoria") or "OUTROS"
-                municipio = existe.get("municipio") or ""
-                uf = existe.get("uf") or ""
+    col_cat, col_mun, col_uf = st.columns([2, 2, 1])
+    with col_cat:
+        try:
+            cat_idx = CATEGORIAS_PADRAO.index(sugestao_categoria)
+        except ValueError:
+            cat_idx = CATEGORIAS_PADRAO.index("OUTROS")
+        categoria = st.selectbox(
+            "Categoria *",
+            CATEGORIAS_PADRAO,
+            index=cat_idx,
+            key="fin_man_cat",
+        )
+    with col_mun:
+        municipio = st.text_input(
+            "Município",
+            value=sugestao_municipio,
+            key="fin_man_mun",
+        )
+    with col_uf:
+        uf = st.text_input(
+            "UF",
+            value=sugestao_uf,
+            max_chars=2,
+            key="fin_man_uf",
+        ).upper()
 
-        col_cat, col_mun, col_uf = st.columns([2, 2, 1])
-        with col_cat:
-            categoria = st.selectbox(
-                "Categoria *",
-                CATEGORIAS_PADRAO,
-                index=CATEGORIAS_PADRAO.index(categoria) if categoria in CATEGORIAS_PADRAO else len(CATEGORIAS_PADRAO) - 1,
-                key="fin_man_cat",
-                disabled=forn_existente is not None,
-            )
-        with col_mun:
-            municipio = st.text_input("Município", value=municipio, key="fin_man_mun",
-                                      disabled=forn_existente is not None)
-        with col_uf:
-            uf = st.text_input("UF", value=uf, max_chars=2, key="fin_man_uf",
-                               disabled=forn_existente is not None).upper()
-
-    # ─── Dados da nota/gasto ─────────────────────────
+    # ─── Bloco 3: Dados do gasto ─────────────────────────
     st.markdown("### 3️⃣ Dados do gasto")
 
     col_emp, col_data = st.columns(2)
@@ -228,40 +205,48 @@ def renderizar_fin_manual(usuario):
         height=80,
     )
 
-    # ─── Validação e gravar ─────────────────────────
+    # ─── Validação ─────────────────────────
     st.markdown("---")
 
     cnpj_digs = re.sub(r"\D", "", cnpj_forn or "")
     erros = []
     if not cnpj_forn or len(cnpj_digs) != 14:
-        erros.append("CNPJ inválido (precisa ter 14 dígitos)")
+        erros.append("CNPJ deve ter 14 dígitos")
     if not nome_forn or len(nome_forn) < 3:
-        erros.append("Nome do fornecedor é obrigatório")
+        erros.append("Nome / Razão Social é obrigatório")
     if valor <= 0:
         erros.append("Valor deve ser maior que zero")
 
     if erros:
-        st.warning("Preencha os campos obrigatórios antes de gravar:\n\n" + "\n".join(f"- {e}" for e in erros))
+        st.warning(
+            "Preencha os campos obrigatórios antes de gravar:\n\n"
+            + "\n".join(f"- {e}" for e in erros)
+        )
         return
 
-    # Confere se a NF já foi lançada (anti-duplicação)
+    # Anti-duplicação
     ja_lancado = False
     if cnpj_forn and numero_nf:
         ja_lancado = repo_financeiro.gasto_ja_lancado(cnpj_forn, numero_nf, valor)
         if ja_lancado:
             st.warning(
-                f"⚠️ Já existe um lançamento com **mesmo CNPJ + nº NF + valor**. "
-                f"Se for o caso, mude algo (ex: valor ou nº da NF) pra distinguir."
+                "⚠️ Já existe um lançamento com **mesmo CNPJ + nº NF + valor**. "
+                "Mude o valor ou nº da NF se for um lançamento diferente."
             )
 
-    # Mostra resumo
+    # ─── Resumo + gravar ─────────────────────────
     st.markdown("### 4️⃣ Confirmar")
+    status_fornecedor = (
+        "🔄 Vai reusar cadastro existente"
+        if forn_existente
+        else "🆕 Vai cadastrar fornecedor automaticamente"
+    )
     st.markdown(
         f"""<div style='background:{AZUL_ESCURO}11; border-left:4px solid {AZUL_ESCURO};
         padding:14px; border-radius:6px;'>
         <b>Resumo do lançamento:</b><br>
         - Competência: <b>{nome_mes(mes_ano)}/{ano}</b><br>
-        - Fornecedor: <b>{nome_forn}</b> ({cnpj_forn})<br>
+        - Fornecedor: <b>{nome_forn}</b> ({cnpj_forn}) — {status_fornecedor}<br>
         - Categoria: <b>{categoria}</b><br>
         - Empresa LLE: <b>{empresa_lle}</b><br>
         - NF nº: <b>{numero_nf or '—'}</b><br>
@@ -281,7 +266,6 @@ def renderizar_fin_manual(usuario):
         disabled=ja_lancado,
     ):
         try:
-            # Obtem ou cria fornecedor
             forn = repo_financeiro.obter_ou_criar_fornecedor(
                 cnpj=cnpj_forn,
                 nome=nome_forn,
@@ -291,15 +275,13 @@ def renderizar_fin_manual(usuario):
                 criado_por_id=usuario.id,
             )
 
-            # Se a categoria foi alterada manualmente (modo "cadastrar novo"),
-            # garante que vai pra base com a categoria escolhida
-            if not forn_existente and forn.get("categoria") != categoria:
+            # Atualiza categoria se diferente do cadastro
+            if forn.get("categoria") != categoria:
                 try:
                     repo_financeiro.atualizar_categoria_fornecedor(forn["id"], categoria)
                 except Exception:
                     pass
 
-            # Cria gasto
             repo_financeiro.criar_gasto(
                 mes_ano=mes_ano,
                 fornecedor_id=forn["id"],
@@ -320,15 +302,18 @@ def renderizar_fin_manual(usuario):
                 "tipo": "sucesso",
                 "texto": (
                     f"✅ Lançamento gravado em **{nome_mes(mes_ano)}/{ano}**.\n\n"
-                    f"- Fornecedor: {nome_forn}\n"
+                    f"- Fornecedor: {nome_forn} "
+                    f"({'reusado' if forn_existente else 'cadastrado agora'})\n"
                     f"- Valor: {formatar_brl(valor)}"
                 ),
             }
             st.toast("✅ Gravado!", icon="✅")
-            # Limpa o formulário forçando trocar as keys
-            import time
-            t = int(time.time())
-            for k in ["fin_man_cnpj", "fin_man_nome", "fin_man_nf", "fin_man_valor", "fin_man_desc"]:
+
+            # Limpa o formulário
+            for k in [
+                "fin_man_cnpj", "fin_man_nome", "fin_man_nf",
+                "fin_man_valor", "fin_man_desc", "fin_man_mun", "fin_man_uf",
+            ]:
                 if k in st.session_state:
                     del st.session_state[k]
             st.rerun()
