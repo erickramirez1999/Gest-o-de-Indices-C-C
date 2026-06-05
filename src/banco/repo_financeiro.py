@@ -159,6 +159,45 @@ def gasto_ja_lancado(cnpj_fornecedor: str, numero_nf: Optional[str], valor: floa
     return bool(res.data)
 
 
+def avaliar_lancamento(
+    cnpj_fornecedor: str,
+    numero_nf: Optional[str],
+    valor: float,
+) -> dict:
+    """
+    Decide o que fazer com um novo lançamento que tem (CNPJ + nº NF):
+
+    Resultados possíveis:
+      - {"acao": "criar"}                          → não existe igual, pode criar normal
+      - {"acao": "duplicado_exato", "gasto_existente": {...}}  → MESMA NF (bloqueia)
+      - {"acao": "atualizar_valor", "gasto_existente": {...}}  → mesmo nº mas valor diferente
+
+    Se não tiver numero_nf, sempre retorna "criar" (não há como detectar duplicação).
+    """
+    if not numero_nf:
+        return {"acao": "criar"}
+
+    sb = obter_conexao()
+    res = (sb.table("dados_financeiro_gasto")
+           .select("*")
+           .eq("cnpj_fornecedor", cnpj_fornecedor)
+           .eq("numero_nf", numero_nf)
+           .execute())
+
+    if not res.data:
+        return {"acao": "criar"}
+
+    # Tem registro com mesmo (CNPJ + numero_nf). Compara o valor.
+    for g in res.data:
+        valor_existente = float(g.get("valor", 0))
+        if abs(valor_existente - float(valor)) < 0.01:
+            # Mesma NF + mesmo valor → duplicado exato
+            return {"acao": "duplicado_exato", "gasto_existente": g}
+
+    # Tem mesma NF mas com valor diferente → atualiza o primeiro
+    return {"acao": "atualizar_valor", "gasto_existente": res.data[0]}
+
+
 def criar_gasto(
     mes_ano: str,
     fornecedor_id: int,

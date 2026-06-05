@@ -224,15 +224,26 @@ def renderizar_fin_manual(usuario):
         )
         return
 
-    # Anti-duplicação
-    ja_lancado = False
+    # ─── Decisão sobre duplicação ─────────────────────────
+    avaliacao = {"acao": "criar"}
     if cnpj_forn and numero_nf:
-        ja_lancado = repo_financeiro.gasto_ja_lancado(cnpj_forn, numero_nf, valor)
-        if ja_lancado:
-            st.warning(
-                "⚠️ Já existe um lançamento com **mesmo CNPJ + nº NF + valor**. "
-                "Mude o valor ou nº da NF se for um lançamento diferente."
-            )
+        avaliacao = repo_financeiro.avaliar_lancamento(cnpj_forn, numero_nf, valor)
+
+    eh_atualizacao = avaliacao["acao"] == "atualizar_valor"
+    eh_duplicado = avaliacao["acao"] == "duplicado_exato"
+
+    if eh_duplicado:
+        st.error(
+            "⛔ **NF duplicada:** já existe um lançamento com **mesmo CNPJ + nº NF + mesmo valor**. "
+            "Não vou cadastrar de novo. Se for um lançamento diferente, mude algo (ex: número da NF)."
+        )
+    elif eh_atualizacao:
+        valor_antigo = float(avaliacao["gasto_existente"].get("valor", 0))
+        st.warning(
+            f"🔄 Já existe um lançamento com **mesma NF nº {numero_nf}** "
+            f"desse fornecedor, com valor **{formatar_brl(valor_antigo)}**. "
+            f"Vou **ATUALIZAR** esse lançamento pro novo valor **{formatar_brl(valor)}** ao salvar."
+        )
 
     # ─── Resumo + gravar ─────────────────────────
     st.markdown("### 4️⃣ Confirmar")
@@ -241,10 +252,16 @@ def renderizar_fin_manual(usuario):
         if forn_existente
         else "🆕 Vai cadastrar fornecedor automaticamente"
     )
+    acao_resumo = (
+        "🔄 ATUALIZAR lançamento existente"
+        if eh_atualizacao
+        else "🆕 Criar novo lançamento"
+    )
     st.markdown(
         f"""<div style='background:{AZUL_ESCURO}11; border-left:4px solid {AZUL_ESCURO};
         padding:14px; border-radius:6px;'>
-        <b>Resumo do lançamento:</b><br>
+        <b>Resumo:</b><br>
+        - Ação: <b>{acao_resumo}</b><br>
         - Competência: <b>{nome_mes(mes_ano)}/{ano}</b><br>
         - Fornecedor: <b>{nome_forn}</b> ({cnpj_forn}) — {status_fornecedor}<br>
         - Categoria: <b>{categoria}</b><br>
@@ -258,12 +275,18 @@ def renderizar_fin_manual(usuario):
 
     st.markdown("")
 
+    label_botao = (
+        f"🔄 Atualizar lançamento (mudar valor pra {formatar_brl(valor)})"
+        if eh_atualizacao
+        else f"💾 Gravar lançamento de {formatar_brl(valor)}"
+    )
+
     if st.button(
-        f"💾 Gravar lançamento de {formatar_brl(valor)}",
+        label_botao,
         type="primary",
         use_container_width=True,
         key="btn_gravar_fin_manual",
-        disabled=ja_lancado,
+        disabled=eh_duplicado,
     ):
         try:
             forn = repo_financeiro.obter_ou_criar_fornecedor(
@@ -282,30 +305,50 @@ def renderizar_fin_manual(usuario):
                 except Exception:
                     pass
 
-            repo_financeiro.criar_gasto(
-                mes_ano=mes_ano,
-                fornecedor_id=forn["id"],
-                cnpj_fornecedor=cnpj_forn,
-                nome_fornecedor=nome_forn,
-                categoria=categoria,
-                cnpj_pagador=None,
-                empresa_lle=empresa_lle if empresa_lle != "OUTRO" else None,
-                numero_nf=numero_nf or None,
-                data_emissao=data_emissao,
-                valor=float(valor),
-                descricao_servico=descricao or None,
-                nome_arquivo_pdf=None,
-                criado_por_id=usuario.id,
-            )
-
-            st.session_state["fin_manual_msg"] = {
-                "tipo": "sucesso",
-                "texto": (
+            if eh_atualizacao:
+                # Atualiza o lançamento existente
+                gasto_id = avaliacao["gasto_existente"]["id"]
+                repo_financeiro.atualizar_gasto(gasto_id, {
+                    "valor": float(valor),
+                    "data_emissao": data_emissao.isoformat(),
+                    "empresa_lle": empresa_lle if empresa_lle != "OUTRO" else None,
+                    "categoria": categoria,
+                    "descricao_servico": descricao or None,
+                    "mes_ano": mes_ano,
+                    "nome_fornecedor": nome_forn,
+                })
+                msg_texto = (
+                    f"🔄 Lançamento ATUALIZADO em **{nome_mes(mes_ano)}/{ano}**.\n\n"
+                    f"- NF nº {numero_nf} da {nome_forn}\n"
+                    f"- Novo valor: {formatar_brl(valor)}"
+                )
+            else:
+                # Cria novo lançamento
+                repo_financeiro.criar_gasto(
+                    mes_ano=mes_ano,
+                    fornecedor_id=forn["id"],
+                    cnpj_fornecedor=cnpj_forn,
+                    nome_fornecedor=nome_forn,
+                    categoria=categoria,
+                    cnpj_pagador=None,
+                    empresa_lle=empresa_lle if empresa_lle != "OUTRO" else None,
+                    numero_nf=numero_nf or None,
+                    data_emissao=data_emissao,
+                    valor=float(valor),
+                    descricao_servico=descricao or None,
+                    nome_arquivo_pdf=None,
+                    criado_por_id=usuario.id,
+                )
+                msg_texto = (
                     f"✅ Lançamento gravado em **{nome_mes(mes_ano)}/{ano}**.\n\n"
                     f"- Fornecedor: {nome_forn} "
                     f"({'reusado' if forn_existente else 'cadastrado agora'})\n"
                     f"- Valor: {formatar_brl(valor)}"
-                ),
+                )
+
+            st.session_state["fin_manual_msg"] = {
+                "tipo": "sucesso",
+                "texto": msg_texto,
             }
             st.toast("✅ Gravado!", icon="✅")
 
