@@ -281,13 +281,14 @@ def renderizar_fin_comparativos(usuario):
     st.markdown("---")
 
     # ─── Recorrências (Fornecedor + Serviço mês a mês) ────────────
-    st.markdown(f"### 🔁 Recorrências — comparativo mês a mês por serviço")
+    st.markdown(f"### 🔁 Recorrências — comparativo de TODOS os fornecedores mês a mês")
     st.caption(
-        "Agrupa por **fornecedor + descrição do serviço**. Útil pra acompanhar serviços "
-        "que se repetem todo mês (ex: SERASA, NINES, IPETB) e comparar valores."
+        "Agrupa por **fornecedor + descrição do serviço**. Cada combinação é um "
+        "'serviço recorrente'. Mostra todos lado a lado pra você comparar valores "
+        "e detectar variações."
     )
 
-    # Pega histórico do ano + ano de comparação (até 24 meses)
+    # Pega histórico do ano + ano de comparação
     anos_para_recorrencia = [ano_foco]
     if ano_compara:
         anos_para_recorrencia.append(ano_compara)
@@ -296,124 +297,220 @@ def renderizar_fin_comparativos(usuario):
     if df_rec.empty:
         st.info("Sem dados pra mostrar recorrências.")
     else:
-        # Normaliza descrição pra agrupar serviços iguais (mesmo texto, ignora caso/pontuação)
+        # Normaliza descrição (remove pontuação, maiúsculas)
         import re as _re
         def _normalizar(s):
             if not s:
                 return "(sem descrição)"
             s = str(s).upper().strip()
-            s = _re.sub(r"[^\w\s]", " ", s)   # remove pontuação
-            s = _re.sub(r"\s+", " ", s)        # colapsa espaços
+            s = _re.sub(r"[^\w\s]", " ", s)
+            s = _re.sub(r"\s+", " ", s)
             return s.strip() or "(sem descrição)"
 
         df_rec["descricao_norm"] = df_rec["descricao_servico"].apply(_normalizar)
+        df_rec["servico_chave"] = (
+            df_rec["nome_fornecedor"].fillna("") + " — " +
+            df_rec["descricao_norm"].str.slice(0, 60)
+        )
 
-        # Agrupa por (fornecedor + descrição normalizada) — cada combinação é UM "serviço recorrente"
+        # Filtro: incluir não-recorrentes (apareceram 1 vez só)?
+        col_filt1, col_filt2 = st.columns([1, 1])
+        with col_filt1:
+            min_meses = st.selectbox(
+                "Mostrar serviços que apareceram em pelo menos",
+                [1, 2, 3, 6],
+                index=1,  # default: 2 meses
+                format_func=lambda n: f"{n} mês(es)",
+                key="fin_rec_min_meses",
+            )
+        with col_filt2:
+            ordenar_por = st.selectbox(
+                "Ordenar por",
+                ["Maior gasto total", "Nome do fornecedor", "Mais meses ativos"],
+                key="fin_rec_ordem",
+            )
+
+        # Agrupa por (fornecedor + descrição)
         grupos = df_rec.groupby(
-            ["nome_fornecedor", "cnpj_fornecedor", "descricao_norm"]
+            ["nome_fornecedor", "cnpj_fornecedor", "descricao_norm", "servico_chave"]
         ).agg(
             meses_distintos=("mes_ano", "nunique"),
             total_geral=("valor", "sum"),
             primeira_descricao=("descricao_servico", "first"),
         ).reset_index()
 
-        # Filtra: só mostra serviços que apareceram em pelo menos 2 meses diferentes
-        recorrentes = grupos[grupos["meses_distintos"] >= 2].sort_values(
-            "total_geral", ascending=False
-        )
+        recorrentes = grupos[grupos["meses_distintos"] >= min_meses].copy()
 
         if recorrentes.empty:
-            st.info(
-                "🔎 Nenhum serviço com pelo menos 2 ocorrências em meses diferentes ainda. "
-                "Quando você tiver mais histórico, os serviços recorrentes vão aparecer aqui."
-            )
+            st.info(f"🔎 Nenhum serviço com pelo menos {min_meses} mês(es) ainda.")
         else:
+            # Ordenação
+            if ordenar_por == "Maior gasto total":
+                recorrentes = recorrentes.sort_values("total_geral", ascending=False)
+            elif ordenar_por == "Nome do fornecedor":
+                recorrentes = recorrentes.sort_values(["nome_fornecedor", "descricao_norm"])
+            else:
+                recorrentes = recorrentes.sort_values(
+                    ["meses_distintos", "total_geral"], ascending=[False, False]
+                )
+
             st.caption(
-                f"📊 Detectados **{len(recorrentes)}** serviços recorrentes "
-                f"(aparecem em 2 ou mais meses)."
+                f"📊 **{len(recorrentes)}** serviço(s) detectado(s)."
             )
 
-            # Quantos exibir
-            top_n = st.slider(
-                "Quantos serviços recorrentes exibir?",
-                min_value=3, max_value=min(20, len(recorrentes)),
-                value=min(8, len(recorrentes)),
-                key="fin_rec_top_n",
-            )
+            # ═══ TABELA CRUZADA: serviço × mês ═══════════════════════════
+            st.markdown(f"#### 📋 Tabela comparativa mês a mês")
 
-            recorrentes_top = recorrentes.head(top_n)
+            # Lista de meses presentes (ordenados)
+            meses_lista = sorted(df_rec["mes_ano"].unique())
 
-            # Pra cada serviço recorrente: tabela com valores mês a mês + variação
-            for _, grupo in recorrentes_top.iterrows():
-                nome_forn = grupo["nome_fornecedor"]
-                desc_orig = (grupo["primeira_descricao"] or "(sem descrição)")[:100]
-                total_geral = grupo["total_geral"]
-                qtd_meses = grupo["meses_distintos"]
-
-                # Pega todos os lançamentos desse grupo
+            # Pra cada serviço, soma os valores por mês
+            linhas_tabela = []
+            for _, grupo in recorrentes.iterrows():
                 lancs = df_rec[
-                    (df_rec["nome_fornecedor"] == nome_forn)
+                    (df_rec["nome_fornecedor"] == grupo["nome_fornecedor"])
                     & (df_rec["cnpj_fornecedor"] == grupo["cnpj_fornecedor"])
                     & (df_rec["descricao_norm"] == grupo["descricao_norm"])
-                ].sort_values("mes_ano")
+                ]
 
-                with st.expander(
-                    f"🔁 **{nome_forn}** — {desc_orig} · "
-                    f"{qtd_meses} mês(es) · Total: {formatar_brl(total_geral)}",
-                    expanded=False,
-                ):
-                    # Tabela mês a mês
-                    por_mes_serv = lancs.groupby("mes_ano")["valor"].sum().reset_index()
-                    por_mes_serv = por_mes_serv.sort_values("mes_ano")
+                por_mes = lancs.groupby("mes_ano")["valor"].sum().to_dict()
 
-                    # Calcula variação % entre meses consecutivos
-                    rows = []
-                    valor_anterior = None
-                    for _, lin in por_mes_serv.iterrows():
-                        mes_str = lin["mes_ano"]
-                        valor_mes = float(lin["valor"])
-                        if valor_anterior is not None and valor_anterior > 0:
-                            var = (valor_mes - valor_anterior) / valor_anterior * 100
-                            var_str = f"{var:+.1f}%"
-                            if abs(var) > 20:
-                                var_str = f"⚠️ {var_str}"
-                        else:
-                            var_str = "—"
-                        rows.append({
-                            "Mês": f"{nome_mes(mes_str)}/{mes_str[:4]}",
-                            "Valor": formatar_brl(valor_mes),
-                            "Variação vs mês anterior": var_str,
-                        })
-                        valor_anterior = valor_mes
+                row = {
+                    "Fornecedor": grupo["nome_fornecedor"],
+                    "Serviço": (grupo["primeira_descricao"] or "(sem descrição)")[:55],
+                }
+                for m in meses_lista:
+                    valor_m = por_mes.get(m, 0)
+                    row[f"{nome_mes(m)[:3]}/{m[2:4]}"] = (
+                        formatar_brl(valor_m) if valor_m > 0 else "—"
+                    )
+                row["Total"] = formatar_brl(grupo["total_geral"])
+                row["Meses"] = int(grupo["meses_distintos"])
+                linhas_tabela.append(row)
 
-                    col_tab, col_graf = st.columns([2, 3])
-                    with col_tab:
-                        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-                        # Resumo
-                        valor_medio = lancs["valor"].mean()
-                        valor_min = lancs["valor"].min()
-                        valor_max = lancs["valor"].max()
-                        st.caption(
-                            f"📊 Média: **{formatar_brl(valor_medio)}** · "
-                            f"Mín: {formatar_brl(valor_min)} · Máx: {formatar_brl(valor_max)}"
-                        )
+            df_cruzada = pd.DataFrame(linhas_tabela)
+            st.dataframe(df_cruzada, use_container_width=True, hide_index=True)
 
-                    with col_graf:
-                        # Gráfico de barras
-                        por_mes_serv["mes_label"] = por_mes_serv["mes_ano"].apply(
-                            lambda m: f"{nome_mes(m)[:3]}/{m[2:4]}"
-                        )
-                        fig_serv = px.bar(
-                            por_mes_serv,
-                            x="mes_label",
-                            y="valor",
-                            text_auto=".2s",
-                            labels={"valor": "R$", "mes_label": "Mês"},
-                            color_discrete_sequence=[AZUL_ESCURO],
-                        )
-                        fig_serv.update_layout(height=280, margin=dict(t=10, b=10))
-                        fig_serv.update_traces(textposition="outside")
-                        st.plotly_chart(fig_serv, use_container_width=True)
+            # Total geral por mês (rodapé)
+            totais_mes = {}
+            for m in meses_lista:
+                totais_mes[m] = df_rec[df_rec["mes_ano"] == m]["valor"].sum()
+
+            rodape = {"Fornecedor": "**TOTAL GERAL**", "Serviço": ""}
+            for m in meses_lista:
+                rodape[f"{nome_mes(m)[:3]}/{m[2:4]}"] = formatar_brl(totais_mes[m])
+            rodape["Total"] = formatar_brl(sum(totais_mes.values()))
+            rodape["Meses"] = ""
+
+            st.caption("**Soma por mês (todos os serviços):**")
+            st.dataframe(pd.DataFrame([rodape]), use_container_width=True, hide_index=True)
+
+            # ═══ GRÁFICO DE LINHAS: todos os serviços juntos ═══════════════
+            st.markdown(f"#### 📈 Gráfico — evolução de todos os fornecedores")
+
+            # Monta dataset longo (pra plotly)
+            dados_long = []
+            for _, grupo in recorrentes.iterrows():
+                lancs = df_rec[
+                    (df_rec["nome_fornecedor"] == grupo["nome_fornecedor"])
+                    & (df_rec["cnpj_fornecedor"] == grupo["cnpj_fornecedor"])
+                    & (df_rec["descricao_norm"] == grupo["descricao_norm"])
+                ]
+                por_mes = lancs.groupby("mes_ano")["valor"].sum()
+                rotulo = f"{grupo['nome_fornecedor']} — {(grupo['primeira_descricao'] or '(s/desc)')[:35]}"
+                for m in meses_lista:
+                    dados_long.append({
+                        "Mês": f"{nome_mes(m)[:3]}/{m[2:4]}",
+                        "Serviço": rotulo,
+                        "Valor": float(por_mes.get(m, 0)),
+                    })
+
+            df_plot = pd.DataFrame(dados_long)
+
+            fig_rec = px.line(
+                df_plot,
+                x="Mês",
+                y="Valor",
+                color="Serviço",
+                markers=True,
+                labels={"Valor": "Total (R$)"},
+            )
+            fig_rec.update_layout(
+                height=450,
+                margin=dict(t=10, b=10),
+                legend=dict(orientation="h", y=-0.25),
+            )
+            st.plotly_chart(fig_rec, use_container_width=True)
+
+            # ═══ DETALHE EXPANSÍVEL DE CADA SERVIÇO ═══════════════
+            st.markdown(f"#### 🔍 Detalhar serviço individual")
+
+            opcoes_servico = {
+                f"{g['nome_fornecedor']} — {(g['primeira_descricao'] or '(s/desc)')[:60]} "
+                f"({g['meses_distintos']} mês, {formatar_brl(g['total_geral'])})": g
+                for _, g in recorrentes.iterrows()
+            }
+
+            servico_escolhido = st.selectbox(
+                "Escolha um serviço pra ver detalhes",
+                list(opcoes_servico.keys()),
+                key="fin_rec_serv_detalhe",
+            )
+
+            g = opcoes_servico[servico_escolhido]
+            lancs = df_rec[
+                (df_rec["nome_fornecedor"] == g["nome_fornecedor"])
+                & (df_rec["cnpj_fornecedor"] == g["cnpj_fornecedor"])
+                & (df_rec["descricao_norm"] == g["descricao_norm"])
+            ].sort_values("mes_ano")
+
+            por_mes_serv = lancs.groupby("mes_ano")["valor"].sum().reset_index().sort_values("mes_ano")
+
+            rows = []
+            valor_anterior = None
+            for _, lin in por_mes_serv.iterrows():
+                mes_str = lin["mes_ano"]
+                valor_mes = float(lin["valor"])
+                if valor_anterior is not None and valor_anterior > 0:
+                    var = (valor_mes - valor_anterior) / valor_anterior * 100
+                    var_str = f"{var:+.1f}%"
+                    if abs(var) > 20:
+                        var_str = f"⚠️ {var_str}"
+                else:
+                    var_str = "—"
+                rows.append({
+                    "Mês": f"{nome_mes(mes_str)}/{mes_str[:4]}",
+                    "Valor": formatar_brl(valor_mes),
+                    "Variação vs mês anterior": var_str,
+                })
+                valor_anterior = valor_mes
+
+            col_d1, col_d2 = st.columns([2, 3])
+            with col_d1:
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                valor_medio = lancs["valor"].mean()
+                valor_min = lancs["valor"].min()
+                valor_max = lancs["valor"].max()
+                st.caption(
+                    f"📊 Média: **{formatar_brl(valor_medio)}** · "
+                    f"Mín: {formatar_brl(valor_min)} · Máx: {formatar_brl(valor_max)}"
+                )
+
+            with col_d2:
+                por_mes_serv["mes_label"] = por_mes_serv["mes_ano"].apply(
+                    lambda m: f"{nome_mes(m)[:3]}/{m[2:4]}"
+                )
+                fig_serv = px.bar(
+                    por_mes_serv,
+                    x="mes_label",
+                    y="valor",
+                    text_auto=".2s",
+                    labels={"valor": "R$", "mes_label": "Mês"},
+                    color_discrete_sequence=[AZUL_ESCURO],
+                )
+                fig_serv.update_layout(height=300, margin=dict(t=10, b=10))
+                fig_serv.update_traces(textposition="outside")
+                st.plotly_chart(fig_serv, use_container_width=True)
 
     st.markdown("---")
 

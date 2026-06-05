@@ -125,23 +125,16 @@ def renderizar_fin_upload(usuario):
                 else (repo_financeiro.sugerir_categoria(nf.descricao_servico, nf.nome_prestador) or "OUTROS")
             )
 
-            # Avalia o que fazer com o lançamento (criar / atualizar valor / duplicado)
-            avaliacao = {"acao": "criar"}
+            # Verifica se já foi lançado antes
+            ja_lancado = False
             if nf.cnpj_prestador and nf.numero_nf:
-                avaliacao = repo_financeiro.avaliar_lancamento(
+                ja_lancado = repo_financeiro.gasto_ja_lancado(
                     nf.cnpj_prestador, nf.numero_nf, nf.valor_total,
                 )
 
-            # Status visual baseado na avaliação
-            if avaliacao["acao"] == "duplicado_exato":
-                status_emoji = "⚠️ Já lançada (duplicada)"
-            elif avaliacao["acao"] == "atualizar_valor":
-                vlr_antigo = float(avaliacao["gasto_existente"].get("valor", 0))
-                status_emoji = f"🔄 Vai atualizar valor (era {formatar_brl(vlr_antigo)})"
-            elif existente:
-                status_emoji = "♻️ Fornecedor já existe"
-            else:
-                status_emoji = "🆕 Novo cadastro"
+            status_emoji = "♻️ Já existe" if existente else "🆕 Novo cadastro"
+            if ja_lancado:
+                status_emoji = "⚠️ Já lançada"
 
             linhas_previa.append({
                 "Arquivo": arq.name,
@@ -155,7 +148,7 @@ def renderizar_fin_upload(usuario):
                 "Competência detectada": nf.competencia_mes_ano or "—",
                 "Valor": formatar_brl(nf.valor_total),
                 "_valor_num": nf.valor_total,
-                "_avaliacao": avaliacao,
+                "_ja_lancado": ja_lancado,
                 "_aviso": nf.aviso,
                 "_existente": existente,
                 "_nf": nf,
@@ -177,7 +170,7 @@ def renderizar_fin_upload(usuario):
                 "Competência detectada": "—",
                 "Valor": "—",
                 "_valor_num": 0,
-                "_avaliacao": {"acao": "erro"},
+                "_ja_lancado": False,
                 "_aviso": str(e),
                 "_existente": None,
                 "_nf": None,
@@ -197,37 +190,19 @@ def renderizar_fin_upload(usuario):
                 st.markdown(f"- {a}")
 
     # Totalizadores
-    def _eh_para_gravar(l):
-        """Vai pro banco se: criar OU atualizar valor."""
-        acao = l.get("_avaliacao", {}).get("acao")
-        return (
-            acao in ("criar", "atualizar_valor")
-            and l["_nf"]
-            and l["_nf"].cnpj_prestador
-            and l["_valor_num"] > 0
-        )
+    total = sum(l["_valor_num"] for l in linhas_previa if not l["_ja_lancado"])
+    qtd_validas = sum(
+        1 for l in linhas_previa
+        if l["_nf"] and l["_nf"].cnpj_prestador and l["_valor_num"] > 0 and not l["_ja_lancado"]
+    )
+    qtd_novos = sum(1 for l in linhas_previa if l["_nf"] and not l["_existente"] and not l["_ja_lancado"])
+    qtd_ja_lancadas = sum(1 for l in linhas_previa if l["_ja_lancado"])
 
-    total = sum(l["_valor_num"] for l in linhas_previa if _eh_para_gravar(l))
-    qtd_validas = sum(1 for l in linhas_previa if _eh_para_gravar(l))
-    qtd_novos = sum(
-        1 for l in linhas_previa
-        if _eh_para_gravar(l) and not l["_existente"]
-    )
-    qtd_atualizar = sum(
-        1 for l in linhas_previa
-        if l.get("_avaliacao", {}).get("acao") == "atualizar_valor"
-    )
-    qtd_duplicadas = sum(
-        1 for l in linhas_previa
-        if l.get("_avaliacao", {}).get("acao") == "duplicado_exato"
-    )
-
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total a lançar", formatar_brl(total))
     c2.metric("NFs válidas", qtd_validas)
     c3.metric("Fornecedores novos", qtd_novos)
-    c4.metric("🔄 Atualizar valor", qtd_atualizar)
-    c5.metric("⚠️ Duplicadas (ignorar)", qtd_duplicadas)
+    c4.metric("Já lançadas (ignoradas)", qtd_ja_lancadas)
 
     # ─── Botão de gravar ─────────────────────────
     st.markdown("---")
@@ -260,20 +235,12 @@ def renderizar_fin_upload(usuario):
     ):
         try:
             criados = 0
-            atualizados = 0
-            duplicados = 0
             forn_novos = 0
             for l in linhas_previa:
                 nf = l["_nf"]
                 if not nf or not nf.cnpj_prestador or nf.valor_total <= 0:
                     continue
-
-                avaliacao = l.get("_avaliacao", {"acao": "criar"})
-                acao = avaliacao.get("acao")
-
-                # Pula duplicado exato (mesma NF + mesmo valor)
-                if acao == "duplicado_exato":
-                    duplicados += 1
+                if l["_ja_lancado"]:
                     continue
 
                 # Obtem ou cria fornecedor
@@ -289,20 +256,7 @@ def renderizar_fin_upload(usuario):
                     criado_por_id=usuario.id,
                 )
 
-                # Atualizar valor de lançamento existente
-                if acao == "atualizar_valor":
-                    gasto_id = avaliacao["gasto_existente"]["id"]
-                    repo_financeiro.atualizar_gasto(gasto_id, {
-                        "valor": float(nf.valor_total),
-                        "data_emissao": nf.data_emissao.isoformat() if nf.data_emissao else None,
-                        "descricao_servico": nf.descricao_servico,
-                        "nome_arquivo_pdf": l["Arquivo"],
-                        "mes_ano": mes_ano,
-                    })
-                    atualizados += 1
-                    continue
-
-                # Caso padrão: criar
+                # Cria lançamento
                 repo_financeiro.criar_gasto(
                     mes_ano=mes_ano,
                     fornecedor_id=forn["id"],
@@ -325,23 +279,16 @@ def renderizar_fin_upload(usuario):
             import time
             st.session_state["fin_uploader_key"] = f"fin_uploader_{int(time.time())}"
 
-            partes = [f"✅ Processamento concluído em **{nome_mes(mes_ano)}/{ano}**."]
-            if criados:
-                partes.append(f"- 🆕 {criados} lançamento(s) criado(s)")
-            if atualizados:
-                partes.append(f"- 🔄 {atualizados} lançamento(s) atualizado(s) (valor mudou)")
-            if duplicados:
-                partes.append(f"- ⚠️ {duplicados} NF(s) ignorada(s) (duplicada exata)")
-            if forn_novos:
-                partes.append(f"- 🏢 {forn_novos} fornecedor(es) novo(s) cadastrado(s) automaticamente")
-            if total > 0:
-                partes.append(f"- 💰 Total processado: {formatar_brl(total)}")
-
             st.session_state["fin_upload_msg"] = {
                 "tipo": "sucesso",
-                "texto": "\n".join(partes),
+                "texto": (
+                    f"✅ **{criados}** lançamento(s) gravado(s) em "
+                    f"**{nome_mes(mes_ano)}/{ano}**.\n\n"
+                    f"- 🆕 {forn_novos} fornecedor(es) novo(s) cadastrado(s) automaticamente\n"
+                    f"- 💰 Total: {formatar_brl(total)}"
+                ),
             }
-            st.toast("✅ Lançamentos processados!", icon="✅")
+            st.toast("✅ Lançamentos gravados!", icon="✅")
             st.rerun()
         except Exception as e:
             import traceback

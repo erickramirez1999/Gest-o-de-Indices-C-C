@@ -364,40 +364,7 @@ def _extrair_municipio_uf_prestador(texto: str) -> tuple[Optional[str], Optional
 
 
 def _extrair_valor_total(texto: str) -> Optional[float]:
-    """
-    Acha o valor total da nota — tenta vários padrões.
-
-    IMPORTANTE: o "Valor Líquido da NFS-e" tem prioridade absoluta,
-    porque alguns formatos (SERASA/SP) colocam várias colunas de tributos
-    ANTES desse valor na mesma linha — precisa pegar o ÚLTIMO valor.
-    """
-    # Padrão prioritário: "Valor Líquido da NFS-e" — pegar o ÚLTIMO R$
-    # da linha seguinte (porque pode ter Retenções Federais e PIS/COFINS antes)
-    for pat_label in [
-        r"ValorL[íi]quidodaNFS-?e",                # RJ/SERASA sem espaços
-        r"Valor\s+L[íi]quido(?:\s+da\s+NFS-?e)?",  # formato normal
-    ]:
-        m = re.search(pat_label, texto, re.IGNORECASE)
-        if m:
-            # Pega até 200 chars depois do label e procura TODOS os R$
-            janela = texto[m.end():m.end() + 200]
-            valores = re.findall(r"R\$\s*([\d.,]+)", janela)
-            if valores:
-                # O Valor Líquido é o ÚLTIMO valor antes de qualquer outro label
-                # Quebra na primeira ocorrência de palavra que sinaliza outra seção
-                fim = re.search(
-                    r"TOTAIS|INFORMA|TRIBUTA[ÇC][ÃA]O|FEDERAIS|ESTADUAIS|MUNICIPAIS",
-                    janela, re.IGNORECASE,
-                )
-                if fim:
-                    janela_limpa = janela[:fim.start()]
-                    valores = re.findall(r"R\$\s*([\d.,]+)", janela_limpa)
-                if valores:
-                    v = _parse_valor_brl(valores[-1])  # ÚLTIMO valor antes da próxima seção
-                    if v and v > 0:
-                        return v
-
-    # Fallbacks pra outros formatos:
+    """Acha o valor total da nota — tenta vários padrões."""
     padroes = [
         # SP: "VALOR TOTAL DO SERVIÇO = R$ 12.000,00"
         r"VALOR\s+TOTAL\s+DO\s+SERVI[ÇC]O\s*=?\s*R?\$?\s*([\d.,]+)",
@@ -405,7 +372,13 @@ def _extrair_valor_total(texto: str) -> Optional[float]:
         r"VALOR\s+TOTAL\s+DA\s+NOTA\s*=?\s*R?\$?\s*([\d.,]+)",
         # SP novo: "VALOR TOTAL COBRADO = R$ 12.000,00"
         r"VALOR\s+TOTAL\s+COBRADO\s*=?\s*R?\$?\s*([\d.,]+)",
+        # RJ formato normal: "Valor Líquido da NFS-e\nR$ 578,97"
+        r"Valor\s+L[íi]quido(?:\s+da\s+NFS-?e)?\s*[\n:]*\s*R?\$?\s*([\d.,]+)",
+        # RJ DANFSe SEM ESPAÇO: "ValorLíquidodaNFS-e\nR$597,35"
+        r"ValorL[íi]quidodaNFS-?e[\s\S]{0,80}?R\$\s*([\d.,]+)",
         # SOLUTE/PE (DANFSe v1.0 com espaços mas múltiplas colunas):
+        # "Valor do Serviço Desconto Incondicionado Total Deduções/Reduções Cálculo do BM\nR$ 396,44 - - -"
+        # O label e o valor podem ter outras colunas no meio.
         r"Valor\s+do\s+Servi[çc]o[\s\S]{0,150}?R\$\s*([\d.,]+)",
         # Fallback: "Valor do Serviço" (RJ normal)
         r"Valor\s+do\s+Servi[çc]o\s*[\n:]*\s*R?\$?\s*([\d.,]+)",
