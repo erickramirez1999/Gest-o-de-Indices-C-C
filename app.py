@@ -50,6 +50,7 @@ PAGINAS_FINANCEIRO = {
     "fin_gastos_mes": "📊 Gastos do Mês",
     "fin_comparativos": "📈 Comparativos",
     "fin_fornecedores": "🏢 Fornecedores",
+    "fin_reparo": "🔧 Reparo",
 }
 
 
@@ -329,7 +330,7 @@ def sidebar_logado(usuario):
             st.markdown("**💼 Financeiro**")
             # Pra Diretoria, esconde Upload e Manual (só visualiza)
             for chave, label in PAGINAS_FINANCEIRO.items():
-                if chave in ("fin_upload", "fin_manual", "fin_fornecedores") and not pode_financeiro_upload:
+                if chave in ("fin_upload", "fin_manual", "fin_fornecedores", "fin_reparo") and not pode_financeiro_upload:
                     continue
                 if st.button(label, key=f"nav_{chave}", use_container_width=True):
                     ir_para(chave)
@@ -414,6 +415,9 @@ def renderizar_pagina(usuario, pagina: str):
     elif pagina == "fin_fornecedores":
         from src.telas.fin_fornecedores import renderizar_fin_fornecedores
         renderizar_fin_fornecedores(usuario)
+    elif pagina == "fin_reparo":
+        from src.telas.fin_reparo import renderizar_fin_reparo
+        renderizar_fin_reparo(usuario)
     elif pagina == "admin_usuarios":
         from src.telas.admin_usuarios import renderizar_usuarios
         renderizar_usuarios(usuario)

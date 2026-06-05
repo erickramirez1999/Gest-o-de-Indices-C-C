@@ -98,20 +98,11 @@ def renderizar_fin_upload(usuario):
         h.update(a.getvalue())
     hash_combinado = h.hexdigest()
 
-    # Se já foi processado nessa sessão, mostra aviso MAS deixa reprocessar
     if st.session_state.get("fin_hash_processado") == hash_combinado:
         st.warning(
             "ℹ️ **Esses arquivos já foram processados nessa sessão.** "
-            "Se você excluiu os lançamentos e quer subir de novo, clique no botão abaixo."
+            "Remova os arquivos (✕) e selecione outros."
         )
-        if st.button(
-            "🔄 Quero reprocessar mesmo assim",
-            type="primary",
-            key="fin_btn_reprocessar",
-        ):
-            # Limpa a trava e força rerun pra continuar o fluxo
-            st.session_state.pop("fin_hash_processado", None)
-            st.rerun()
         return
 
     # ─── Processa cada PDF e monta prévia ─────────────────────────

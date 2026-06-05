@@ -155,179 +155,44 @@ def renderizar_fin_gastos_mes(usuario):
     total_filt = sum(float(g.get("valor", 0)) for g in gastos_filtrados)
     st.caption(f"📊 Filtrado: **{len(gastos_filtrados)}** lançamentos · **{formatar_brl(total_filt)}**")
 
-    # ─── AÇÕES SOBRE OS LANÇAMENTOS ─────────────────────────
+    # ─── Excluir lançamento (com confirmação) ─────────────────────────
     st.markdown("---")
-    st.markdown(f"### 🛠️ Ações sobre os lançamentos de {nome_mes(mes_ano)}/{mes_ano[:4]}")
-
-    aba_mover, aba_excluir1, aba_excluir_tudo = st.tabs([
-        "📅 Mover lançamento de mês",
-        "🗑️ Excluir um lançamento",
-        "⚠️ Excluir TODOS do mês",
-    ])
-
-    # ───── Tab 1: Mover de mês ─────
-    with aba_mover:
+    with st.expander("🗑️ Excluir um lançamento"):
         st.caption(
-            "Lançou no mês errado? Selecione o lançamento e mude pro mês correto. "
-            "Os dados (fornecedor, valor, NF) ficam preservados — só muda a competência."
+            "Use com cuidado. Excluir um lançamento NÃO apaga o cadastro do "
+            "fornecedor, apenas o lançamento de gasto."
         )
 
-        opcoes_mover = {
-            f"ID {g['id']} · {g.get('nome_fornecedor', '?')} · "
-            f"{formatar_brl(g.get('valor', 0))} · NF {g.get('numero_nf') or '—'} "
-            f"· {g.get('data_emissao') or '—'}": g
-            for g in gastos
-        }
-
-        sel = st.selectbox(
-            "Selecione o lançamento",
-            list(opcoes_mover.keys()),
-            key="fin_mover_sel",
+        ids_validos = [g["id"] for g in gastos]
+        id_excluir = st.number_input(
+            "ID do lançamento (vê na coluna 'ID' da tabela acima)",
+            min_value=0,
+            step=1,
+            key="fin_excluir_id",
         )
-        gasto_mover = opcoes_mover[sel]
 
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            novo_mes = st.selectbox(
-                "Mover para o MÊS",
-                list(range(1, 13)),
-                index=int(mes_ano[5:7]) - 1,
-                format_func=lambda m: nome_mes(f"2026-{m:02d}"),
-                key="fin_mover_mes",
-            )
-        with col_m2:
-            from datetime import date as _date
-            ano_atual = _date.today().year
-            novo_ano = st.selectbox(
-                "Para o ANO",
-                list(range(ano_atual - 3, ano_atual + 2)),
-                index=3,  # ano atual
-                key="fin_mover_ano",
-            )
-
-        novo_mes_ano = f"{novo_ano:04d}-{novo_mes:02d}"
-        mes_atual_lanc = gasto_mover.get("mes_ano")
-
-        if novo_mes_ano == mes_atual_lanc:
-            st.info(f"ℹ️ O lançamento já está em {nome_mes(novo_mes_ano)}/{novo_ano}. Escolha outro mês.")
-        else:
+        if id_excluir and id_excluir in ids_validos:
+            gasto_alvo = next(g for g in gastos if g["id"] == id_excluir)
             st.warning(
-                f"**Vai mover:**\n"
-                f"- Fornecedor: {gasto_mover.get('nome_fornecedor')}\n"
-                f"- Valor: {formatar_brl(gasto_mover.get('valor', 0))}\n"
-                f"- NF: {gasto_mover.get('numero_nf') or '—'}\n"
-                f"- De: **{nome_mes(mes_atual_lanc)}/{mes_atual_lanc[:4]}**\n"
-                f"- Para: **{nome_mes(novo_mes_ano)}/{novo_ano}**"
+                f"**Vai excluir:**\n"
+                f"- Fornecedor: {gasto_alvo.get('nome_fornecedor')}\n"
+                f"- Valor: {formatar_brl(gasto_alvo.get('valor', 0))}\n"
+                f"- NF: {gasto_alvo.get('numero_nf') or '—'}\n"
+                f"- Data: {gasto_alvo.get('data_emissao') or '—'}"
             )
-            if st.button("📅 Confirmar movimentação", type="primary", key="btn_mover_lanc"):
+            if st.button("⚠️ Confirmar exclusão", type="primary", key="btn_conf_excluir_fin"):
                 try:
-                    repo_financeiro.atualizar_gasto(
-                        gasto_mover["id"],
-                        {"mes_ano": novo_mes_ano},
-                    )
+                    repo_financeiro.excluir_gasto(id_excluir)
                     st.session_state["fin_gastos_msg"] = {
                         "tipo": "sucesso",
-                        "texto": (
-                            f"✅ Lançamento ID {gasto_mover['id']} movido pra "
-                            f"**{nome_mes(novo_mes_ano)}/{novo_ano}**."
-                        ),
+                        "texto": f"✅ Lançamento ID {id_excluir} excluído.",
                     }
                     st.rerun()
                 except Exception as e:
                     st.session_state["fin_gastos_msg"] = {
                         "tipo": "erro",
-                        "texto": f"❌ Erro ao mover: {e}",
+                        "texto": f"❌ Erro ao excluir: {e}",
                     }
                     st.rerun()
-
-    # ───── Tab 2: Excluir um lançamento ─────
-    with aba_excluir1:
-        st.caption(
-            "Excluir lançamento individual. NÃO apaga o cadastro do fornecedor."
-        )
-
-        opcoes_excl = {
-            f"ID {g['id']} · {g.get('nome_fornecedor', '?')} · "
-            f"{formatar_brl(g.get('valor', 0))} · NF {g.get('numero_nf') or '—'} "
-            f"· {g.get('data_emissao') or '—'}": g
-            for g in gastos
-        }
-
-        sel_excl = st.selectbox(
-            "Selecione o lançamento",
-            list(opcoes_excl.keys()),
-            key="fin_excluir_sel",
-        )
-        gasto_excl = opcoes_excl[sel_excl]
-
-        st.warning(
-            f"**Vai excluir:**\n"
-            f"- Fornecedor: {gasto_excl.get('nome_fornecedor')}\n"
-            f"- Valor: {formatar_brl(gasto_excl.get('valor', 0))}\n"
-            f"- NF: {gasto_excl.get('numero_nf') or '—'}\n"
-            f"- Data: {gasto_excl.get('data_emissao') or '—'}\n"
-            f"- Competência: {nome_mes(gasto_excl.get('mes_ano', ''))}/{gasto_excl.get('mes_ano', '')[:4]}"
-        )
-
-        if st.button("🗑️ Confirmar exclusão", type="primary", key="btn_conf_excluir_fin"):
-            try:
-                repo_financeiro.excluir_gasto(gasto_excl["id"])
-                st.session_state["fin_gastos_msg"] = {
-                    "tipo": "sucesso",
-                    "texto": f"✅ Lançamento ID {gasto_excl['id']} excluído.",
-                }
-                st.rerun()
-            except Exception as e:
-                st.session_state["fin_gastos_msg"] = {
-                    "tipo": "erro",
-                    "texto": f"❌ Erro ao excluir: {e}",
-                }
-                st.rerun()
-
-    # ───── Tab 3: Excluir TODOS do mês ─────
-    with aba_excluir_tudo:
-        st.caption(
-            "**⚠️ Ação destrutiva.** Apaga TODOS os lançamentos do mês selecionado. "
-            "Use só se subiu tudo errado e quer começar do zero. Os cadastros de "
-            "fornecedores NÃO são apagados."
-        )
-
-        st.error(
-            f"**Você está prestes a apagar TODOS os {len(gastos)} lançamento(s) "
-            f"de {nome_mes(mes_ano)}/{mes_ano[:4]}** "
-            f"(total {formatar_brl(total)})."
-        )
-
-        confirmacao = st.text_input(
-            f"Pra confirmar, digite **APAGAR {nome_mes(mes_ano).upper()}** no campo abaixo:",
-            key="fin_apagar_mes_conf",
-            placeholder=f"APAGAR {nome_mes(mes_ano).upper()}",
-        )
-
-        confirma_ok = confirmacao.strip().upper() == f"APAGAR {nome_mes(mes_ano).upper()}"
-
-        if st.button(
-            f"⚠️ Excluir TODOS os {len(gastos)} lançamento(s) de {nome_mes(mes_ano)}",
-            type="primary",
-            disabled=not confirma_ok,
-            key="btn_apagar_mes_inteiro",
-        ):
-            try:
-                qtd_excluidos = 0
-                for g in gastos:
-                    repo_financeiro.excluir_gasto(g["id"])
-                    qtd_excluidos += 1
-                st.session_state["fin_gastos_msg"] = {
-                    "tipo": "sucesso",
-                    "texto": (
-                        f"✅ **{qtd_excluidos}** lançamento(s) excluído(s) de "
-                        f"**{nome_mes(mes_ano)}/{mes_ano[:4]}**."
-                    ),
-                }
-                st.rerun()
-            except Exception as e:
-                st.session_state["fin_gastos_msg"] = {
-                    "tipo": "erro",
-                    "texto": f"❌ Erro ao excluir lançamentos do mês: {e}",
-                }
-                st.rerun()
+        elif id_excluir:
+            st.error(f"ID {id_excluir} não existe nessa lista.")

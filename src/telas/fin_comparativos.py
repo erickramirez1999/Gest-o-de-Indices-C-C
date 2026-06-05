@@ -280,49 +280,6 @@ def renderizar_fin_comparativos(usuario):
 
     st.markdown("---")
 
-    # ─── Comparativo de fornecedores mês a mês ──────────────
-    st.markdown(f"### 🔁 Fornecedores mês a mês — {ano_foco}")
-    st.caption("Cada linha é um fornecedor. Colunas são os meses. Pra comparar valores e detectar variações.")
-
-    if df_ano.empty:
-        st.info("Sem dados pra esse ano.")
-    else:
-        # Lista de meses presentes (ordenados)
-        meses_lista = sorted(df_ano["mes_ano"].unique())
-
-        # Agrupa por fornecedor → soma por mês
-        fornecedores_ano = (df_ano.groupby("nome_fornecedor")["valor"]
-                            .sum().sort_values(ascending=False).index.tolist())
-
-        linhas_tabela = []
-        for forn in fornecedores_ano:
-            lancs = df_ano[df_ano["nome_fornecedor"] == forn]
-            por_mes = lancs.groupby("mes_ano")["valor"].sum().to_dict()
-
-            row = {"Fornecedor": forn}
-            total = 0.0
-            for m in meses_lista:
-                v = float(por_mes.get(m, 0))
-                row[f"{nome_mes(m)[:3]}/{m[2:4]}"] = formatar_brl(v) if v > 0 else "—"
-                total += v
-            row["Total"] = formatar_brl(total)
-            linhas_tabela.append(row)
-
-        st.dataframe(pd.DataFrame(linhas_tabela), use_container_width=True, hide_index=True)
-
-        # Linha de totais por mês
-        totais = {"Fornecedor": "**TOTAL DO MÊS**"}
-        soma_geral = 0.0
-        for m in meses_lista:
-            t = df_ano[df_ano["mes_ano"] == m]["valor"].sum()
-            totais[f"{nome_mes(m)[:3]}/{m[2:4]}"] = formatar_brl(t)
-            soma_geral += t
-        totais["Total"] = formatar_brl(soma_geral)
-        st.dataframe(pd.DataFrame([totais]), use_container_width=True, hide_index=True)
-
-
-    st.markdown("---")
-
     # ─── Projeção pro ano (orçamento próximo) ─────────────────────────
     st.markdown(f"### 🔮 Projeção e referência pra orçamento")
 
