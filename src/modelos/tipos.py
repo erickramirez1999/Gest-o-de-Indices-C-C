@@ -12,10 +12,16 @@ PERMISSOES = {
         "cred_indicadores", "cred_reanalises", "cred_geral",
         "admin_usuarios",  # só vê aba Relatórios (Crédito) + Auditoria
     ],
+    "GESTOR_FINANCEIRO": [
+        "inicio", "meu_perfil",
+        "fin_upload", "fin_gastos_mes",
+        "admin_usuarios",  # só Relatórios (Financeiro) + Auditoria
+    ],
     "DIRETORIA": [
         "inicio", "meu_perfil",
         "cob_acordo", "cob_cobranca", "cob_performance", "cob_geral",
         "cred_indicadores", "cred_reanalises", "cred_geral",
+        "fin_gastos_mes",
     ],
 }
 

@@ -44,6 +44,11 @@ PAGINAS_CREDITO = {
     "cred_geral": "📊 Geral",
 }
 
+PAGINAS_FINANCEIRO = {
+    "fin_upload": "💼 Upload de NFs",
+    "fin_gastos_mes": "📊 Gastos do Mês",
+}
+
 
 def pagina_atual():
     return st.session_state.get("pagina", "inicio")
@@ -168,6 +173,7 @@ def _form_cadastro():
     PERFIS_CAD = {
         "GESTOR_COBRANCA": "Gestor de Cobrança",
         "GESTOR_CREDITO": "Gestor de Crédito",
+        "GESTOR_FINANCEIRO": "Gestor Financeiro",
         "DIRETORIA": "Diretoria",
     }
 
@@ -295,6 +301,8 @@ def sidebar_logado(usuario):
 
         pode_cobranca = usuario.perfil in ("ADMIN", "GESTOR_COBRANCA", "DIRETORIA")
         pode_credito = usuario.perfil in ("ADMIN", "GESTOR_CREDITO", "DIRETORIA")
+        pode_financeiro = usuario.perfil in ("ADMIN", "GESTOR_FINANCEIRO", "DIRETORIA")
+        pode_financeiro_upload = usuario.perfil in ("ADMIN", "GESTOR_FINANCEIRO")
         pode_upload = usuario.perfil in ("ADMIN", "GESTOR_COBRANCA", "GESTOR_CREDITO")
         eh_admin = usuario.perfil == "ADMIN"
 
@@ -314,6 +322,17 @@ def sidebar_logado(usuario):
                     st.rerun()
             st.markdown("")
 
+        if pode_financeiro:
+            st.markdown("**💼 Financeiro**")
+            # Pra Diretoria, esconde o Upload (só visualiza)
+            for chave, label in PAGINAS_FINANCEIRO.items():
+                if chave == "fin_upload" and not pode_financeiro_upload:
+                    continue
+                if st.button(label, key=f"nav_{chave}", use_container_width=True):
+                    ir_para(chave)
+                    st.rerun()
+            st.markdown("")
+
         if pode_upload:
             st.markdown("---")
             if st.button("📤 Upload Mensal", use_container_width=True, key="nav_upload"):
@@ -326,7 +345,7 @@ def sidebar_logado(usuario):
             if st.button("👥 Usuarios", use_container_width=True, key="nav_users"):
                 ir_para("admin_usuarios")
                 st.rerun()
-        elif usuario.perfil in ("GESTOR_COBRANCA", "GESTOR_CREDITO"):
+        elif usuario.perfil in ("GESTOR_COBRANCA", "GESTOR_CREDITO", "GESTOR_FINANCEIRO"):
             st.markdown("---")
             if st.button("⚙ Administracao", use_container_width=True, key="nav_admin"):
                 ir_para("admin_usuarios")
@@ -377,6 +396,12 @@ def renderizar_pagina(usuario, pagina: str):
     elif pagina == "cred_geral":
         from src.telas.cred_geral import renderizar_geral_credito
         renderizar_geral_credito(usuario)
+    elif pagina == "fin_upload":
+        from src.telas.fin_upload import renderizar_fin_upload
+        renderizar_fin_upload(usuario)
+    elif pagina == "fin_gastos_mes":
+        from src.telas.fin_gastos_mes import renderizar_fin_gastos_mes
+        renderizar_fin_gastos_mes(usuario)
     elif pagina == "admin_usuarios":
         from src.telas.admin_usuarios import renderizar_usuarios
         renderizar_usuarios(usuario)
@@ -399,12 +424,21 @@ def _tela_inicio(usuario):
 
     pode_cobranca = usuario.perfil in ("ADMIN", "GESTOR_COBRANCA", "DIRETORIA")
     pode_credito = usuario.perfil in ("ADMIN", "GESTOR_CREDITO", "DIRETORIA")
+    pode_financeiro = usuario.perfil in ("ADMIN", "GESTOR_FINANCEIRO", "DIRETORIA")
     pode_upload = usuario.perfil in ("ADMIN", "GESTOR_COBRANCA", "GESTOR_CREDITO")
 
-    col1, col2 = st.columns(2)
+    # Layout: até 3 cards lado a lado
+    cards_ativos = [c for c, ativo in [
+        ("cob", pode_cobranca),
+        ("cred", pode_credito),
+        ("fin", pode_financeiro),
+    ] if ativo]
+
+    cols = st.columns(max(len(cards_ativos), 1))
+    idx = 0
 
     if pode_cobranca:
-        with col1:
+        with cols[idx]:
             st.markdown(
                 f"""<div style="background:{AZUL_ESCURO}; padding:24px; border-radius:10px;
                 border-left:5px solid {AMARELO}; margin-bottom:12px; cursor:pointer;">
@@ -420,9 +454,10 @@ def _tela_inicio(usuario):
             if st.button("📊 Acessar Cobrança", use_container_width=True, type="primary"):
                 ir_para("cob_acordo")
                 st.rerun()
+        idx += 1
 
     if pode_credito:
-        with col2:
+        with cols[idx]:
             st.markdown(
                 f"""<div style="background:{AZUL_ESCURO}; padding:24px; border-radius:10px;
                 border-left:5px solid {VERDE}; margin-bottom:12px;">
@@ -437,6 +472,26 @@ def _tela_inicio(usuario):
             )
             if st.button("💳 Acessar Crédito", use_container_width=True, type="primary"):
                 ir_para("cred_indicadores")
+                st.rerun()
+        idx += 1
+
+    if pode_financeiro:
+        with cols[idx]:
+            st.markdown(
+                f"""<div style="background:{AZUL_ESCURO}; padding:24px; border-radius:10px;
+                border-left:5px solid #FF8C00; margin-bottom:12px;">
+                <div style="color:#FF8C00; font-size:13px; font-weight:700; letter-spacing:1px;">
+                FINANCEIRO</div>
+                <div style="color:white; font-size:20px; font-weight:700; margin-top:6px;">
+                Custo Orçamentário</div>
+                <div style="color:#AAA; font-size:12px; margin-top:8px;">
+                Upload de NFs · Gastos mês a mês · Comparativos anuais</div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+            destino = "fin_upload" if usuario.perfil in ("ADMIN", "GESTOR_FINANCEIRO") else "fin_gastos_mes"
+            if st.button("💼 Acessar Financeiro", use_container_width=True, type="primary"):
+                ir_para(destino)
                 st.rerun()
 
 
