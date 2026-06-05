@@ -252,14 +252,17 @@ def renderizar_fin_comparativos(usuario):
 
     # ─── Fornecedores mês a mês (tabela cruzada) ─────────────────────────
     st.markdown(f"### 🔁 Fornecedores mês a mês — {ano_foco}")
-    st.caption("Cada linha é um fornecedor. Colunas são os meses. Pra comparar valores.")
+    st.caption(
+        "Cada linha é um fornecedor. **Variação** = comparação do último mês com o anterior "
+        "(considerando só meses com lançamento)."
+    )
 
     if df_ano.empty:
         st.info("Sem dados pra esse ano.")
     else:
         meses_lista = sorted(df_ano["mes_ano"].unique())
 
-        # Ordena por total desc, agrupando por CNPJ (mesma lógica do Top Fornecedores)
+        # Ordena por total desc, agrupando por CNPJ
         cnpjs_ordenados = (df_ano.groupby("cnpj_fornecedor")["valor"]
                            .sum().sort_values(ascending=False).index.tolist())
 
@@ -274,6 +277,27 @@ def renderizar_fin_comparativos(usuario):
                 row[f"{nome_mes(m)[:3]}/{m[2:4]}"] = formatar_brl(v) if v > 0 else "—"
                 total += v
             row["Total"] = formatar_brl(total)
+
+            # Variação: pega os 2 últimos meses COM lançamento desse fornecedor
+            meses_com_valor = [(m, por_mes[m]) for m in meses_lista if por_mes.get(m, 0) > 0]
+            if len(meses_com_valor) >= 2:
+                ultimo = meses_com_valor[-1][1]
+                penultimo = meses_com_valor[-2][1]
+                if penultimo > 0:
+                    pct = (ultimo - penultimo) / penultimo * 100
+                    if abs(pct) < 0.5:
+                        row["Variação"] = "0%"
+                    elif pct > 0:
+                        emoji = "🔺" if pct > 20 else "↗"
+                        row["Variação"] = f"{emoji} +{pct:.1f}%"
+                    else:
+                        emoji = "🔻" if pct < -20 else "↘"
+                        row["Variação"] = f"{emoji} {pct:.1f}%"
+                else:
+                    row["Variação"] = "—"
+            else:
+                row["Variação"] = "—"  # só 1 mês de dados, não dá pra comparar
+
             linhas_tabela.append(row)
 
         st.dataframe(pd.DataFrame(linhas_tabela), use_container_width=True, hide_index=True)
@@ -281,11 +305,29 @@ def renderizar_fin_comparativos(usuario):
         # Total por mês
         totais = {"Fornecedor": "**TOTAL DO MÊS**"}
         soma_geral = 0.0
+        valores_totais_mes = []
         for m in meses_lista:
             t = df_ano[df_ano["mes_ano"] == m]["valor"].sum()
             totais[f"{nome_mes(m)[:3]}/{m[2:4]}"] = formatar_brl(t)
             soma_geral += t
+            if t > 0:
+                valores_totais_mes.append(t)
         totais["Total"] = formatar_brl(soma_geral)
+
+        # Variação do total geral
+        if len(valores_totais_mes) >= 2:
+            pct_geral = (valores_totais_mes[-1] - valores_totais_mes[-2]) / valores_totais_mes[-2] * 100
+            if abs(pct_geral) < 0.5:
+                totais["Variação"] = "0%"
+            elif pct_geral > 0:
+                emoji = "🔺" if pct_geral > 20 else "↗"
+                totais["Variação"] = f"{emoji} +{pct_geral:.1f}%"
+            else:
+                emoji = "🔻" if pct_geral < -20 else "↘"
+                totais["Variação"] = f"{emoji} {pct_geral:.1f}%"
+        else:
+            totais["Variação"] = "—"
+
         st.dataframe(pd.DataFrame([totais]), use_container_width=True, hide_index=True)
 
     st.markdown("---")
