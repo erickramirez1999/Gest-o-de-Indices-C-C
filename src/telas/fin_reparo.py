@@ -1,11 +1,4 @@
-"""
-Tela Financeiro · Reparo / Recuperação
-
-Pra casos onde alguma unificação ou exclusão deu errado:
-  - Reatribuir lançamentos de um fornecedor pra outro (desfazer unificação)
-  - Reativar fornecedor desativado
-  - Ver auditoria de quais lançamentos estão em cada fornecedor
-"""
+"""Tela Financeiro · Reparo / Recuperação."""
 from __future__ import annotations
 
 import pandas as pd
@@ -17,8 +10,7 @@ from src.utils.formatadores import formatar_brl, nome_mes
 from src.utils.marca import AZUL_ESCURO
 
 
-def _reatribuir_lancamentos_por_ids(ids_lancamentos: list, fornecedor_destino: dict) -> int:
-    """Move uma lista específica de lançamentos pra um fornecedor."""
+def _reatribuir_lancamentos_por_ids(ids_lancamentos, fornecedor_destino):
     sb = obter_conexao()
     res = (sb.table("dados_financeiro_gasto")
            .update({
@@ -27,25 +19,21 @@ def _reatribuir_lancamentos_por_ids(ids_lancamentos: list, fornecedor_destino: d
                "nome_fornecedor": fornecedor_destino["nome"],
                "categoria": fornecedor_destino.get("categoria"),
            })
-           .in_("id", ids_lancamentos)
-           .execute())
+           .in_("id", ids_lancamentos).execute())
     return len(res.data) if res.data else 0
 
 
-def _reativar_fornecedor(fornecedor_id: int) -> None:
+def _reativar_fornecedor(fornecedor_id):
     sb = obter_conexao()
     sb.table("fornecedor_financeiro").update({"ativo": True}).eq("id", fornecedor_id).execute()
 
 
 def renderizar_fin_reparo(usuario):
     st.markdown(
-        f"<h1 style='color:{AZUL_ESCURO}'>🔧 Financeiro · Reparo / Recuperação</h1>",
+        f"<h1 style='color:{AZUL_ESCURO}'>🔧 Financeiro · Reparo</h1>",
         unsafe_allow_html=True,
     )
-    st.caption(
-        "Ferramentas pra corrigir erros de unificação ou recuperar dados. "
-        "Use com cautela — você seleciona exatamente quais lançamentos mover."
-    )
+    st.caption("Recuperar lançamentos que foram movidos errado, reativar fornecedores.")
 
     msg = st.session_state.pop("fin_rep_msg", None)
     if msg:
@@ -56,51 +44,35 @@ def renderizar_fin_reparo(usuario):
         else:
             st.error(msg["texto"])
 
-    # ─── Tab 1: Reatribuir lançamentos ─────────────────────────
-    aba_realoc, aba_reativ = st.tabs([
-        "🔄 Reatribuir lançamentos",
-        "✅ Reativar fornecedor",
-    ])
-
+    aba1, aba2 = st.tabs(["🔄 Reatribuir lançamentos", "✅ Reativar fornecedor"])
     fornecedores = repo_financeiro.listar_fornecedores(apenas_ativos=False)
 
-    with aba_realoc:
-        st.caption(
-            "Selecione um fornecedor pra ver TODOS os lançamentos dele. "
-            "Marque os que estão errados e escolha pra qual fornecedor mandar."
-        )
-
+    with aba1:
+        st.caption("Selecione um fornecedor, marque os lançamentos errados, escolha pra qual mandar.")
         if not fornecedores:
             st.info("Nenhum fornecedor cadastrado.")
         else:
-            # Mostra TODOS (ativos + inativos) — porque a maioria dos casos
-            # de erro é exatamente em fornecedor que absorveu lançamentos errados
             opcoes_origem = {
                 f"{f['nome']} — {f['cnpj']} (ID {f['id']}, "
                 f"{'ATIVO' if f.get('ativo', True) else 'INATIVO'})": f
                 for f in fornecedores
             }
             sel_origem = st.selectbox(
-                "Fornecedor de ORIGEM (de onde tirar os lançamentos)",
+                "Fornecedor de ORIGEM (de onde tirar)",
                 list(opcoes_origem.keys()),
                 key="fin_rep_origem",
             )
             forn_origem = opcoes_origem[sel_origem]
 
-            # Lista lançamentos desse fornecedor
             sb = obter_conexao()
             lancs = (sb.table("dados_financeiro_gasto")
-                     .select("*")
-                     .eq("fornecedor_id", forn_origem["id"])
-                     .order("data_emissao", desc=True)
-                     .execute().data or [])
+                     .select("*").eq("fornecedor_id", forn_origem["id"])
+                     .order("data_emissao", desc=True).execute().data or [])
 
             if not lancs:
-                st.info(f"📭 Esse fornecedor não tem lançamentos.")
+                st.info("📭 Sem lançamentos nesse fornecedor.")
             else:
-                st.markdown(f"##### 📋 Lançamentos de **{forn_origem['nome']}** ({len(lancs)} total)")
-
-                # Tabela
+                st.markdown(f"##### 📋 Lançamentos de **{forn_origem['nome']}** ({len(lancs)})")
                 rows = []
                 for l in lancs:
                     rows.append({
@@ -112,80 +84,65 @@ def renderizar_fin_reparo(usuario):
                         "Valor": formatar_brl(l.get("valor", 0)),
                         "Descrição": (l.get("descricao_servico") or "")[:60],
                     })
-                df = pd.DataFrame(rows)
-
                 edited = st.data_editor(
-                    df,
+                    pd.DataFrame(rows),
                     use_container_width=True,
                     hide_index=True,
                     disabled=["ID", "Mês", "Data", "NF", "Valor", "Descrição"],
                     column_config={
                         "✓": st.column_config.CheckboxColumn(
-                            "Marcar pra mover",
-                            help="Marque as linhas que quer reatribuir",
-                            default=False,
+                            "Marcar pra mover", default=False,
                         ),
                     },
                     key=f"fin_rep_editor_{forn_origem['id']}",
                 )
+                ids_sel = edited.loc[edited["✓"] == True, "ID"].tolist()
 
-                ids_selecionados = edited.loc[edited["✓"] == True, "ID"].tolist()
-
-                if not ids_selecionados:
+                if not ids_sel:
                     st.info("👆 Marque pelo menos um lançamento.")
                 else:
-                    valor_total_sel = sum(
-                        float(l.get("valor", 0)) for l in lancs
-                        if l["id"] in ids_selecionados
+                    valor_total = sum(
+                        float(l.get("valor", 0)) for l in lancs if l["id"] in ids_sel
                     )
-
-                    st.markdown(f"##### 🎯 Mover **{len(ids_selecionados)}** lançamento(s) (total {formatar_brl(valor_total_sel)}) pra:")
-
-                    opcoes_dest = {
+                    st.markdown(
+                        f"##### 🎯 Mover **{len(ids_sel)}** ({formatar_brl(valor_total)}) pra:"
+                    )
+                    opcoes_d = {
                         f"{f['nome']} — {f['cnpj']} (ID {f['id']})": f
                         for f in fornecedores if f["id"] != forn_origem["id"]
                     }
-
-                    sel_dest = st.selectbox(
-                        "Fornecedor de DESTINO",
-                        list(opcoes_dest.keys()),
-                        key="fin_rep_destino",
-                    )
-                    forn_dest = opcoes_dest[sel_dest]
+                    sel_d = st.selectbox("DESTINO", list(opcoes_d.keys()), key="fin_rep_dest")
+                    forn_d = opcoes_d[sel_d]
 
                     st.warning(
-                        f"**Vai mover {len(ids_selecionados)} lançamento(s) "
-                        f"({formatar_brl(valor_total_sel)})** de "
-                        f"`{forn_origem['nome']}` → `{forn_dest['nome']}`"
+                        f"**Vai mover {len(ids_sel)} lançamento(s) ({formatar_brl(valor_total)})** "
+                        f"de `{forn_origem['nome']}` → `{forn_d['nome']}`"
                     )
 
-                    confirma_txt = st.text_input(
+                    conf = st.text_input(
                         "Pra confirmar, digite **MOVER**:",
                         key="fin_rep_conf",
                         placeholder="MOVER",
                     )
-                    confirma_ok = confirma_txt.strip().upper() == "MOVER"
+                    ok = conf.strip().upper() == "MOVER"
 
                     if st.button(
-                        f"🔄 Mover {len(ids_selecionados)} lançamento(s)",
+                        f"🔄 Mover {len(ids_sel)} lançamento(s)",
                         type="primary",
-                        disabled=not confirma_ok,
+                        disabled=not ok,
                         use_container_width=True,
-                        key="fin_rep_btn_mover",
+                        key="fin_rep_btn",
                     ):
                         try:
-                            movidos = _reatribuir_lancamentos_por_ids(ids_selecionados, forn_dest)
-
-                            # Se o fornecedor destino estava inativo, reativa
-                            if not forn_dest.get("ativo", True):
-                                _reativar_fornecedor(forn_dest["id"])
-
+                            mov = _reatribuir_lancamentos_por_ids(ids_sel, forn_d)
+                            if not forn_d.get("ativo", True):
+                                _reativar_fornecedor(forn_d["id"])
                             st.session_state["fin_rep_msg"] = {
                                 "tipo": "sucesso",
                                 "texto": (
-                                    f"✅ **{movidos}** lançamento(s) movido(s) "
+                                    f"✅ **{mov}** lançamento(s) movido(s) "
                                     f"de `{forn_origem['nome']}` "
-                                    f"pra `{forn_dest['nome']}`."
+                                    f"pra `{forn_d['nome']}`."
                                 ),
                             }
                             st.toast("✅ Movidos!", icon="✅")
@@ -193,32 +150,23 @@ def renderizar_fin_reparo(usuario):
                         except Exception as e:
                             st.session_state["fin_rep_msg"] = {
                                 "tipo": "erro",
-                                "texto": f"❌ Erro ao mover: {type(e).__name__}: {e}",
+                                "texto": f"❌ Erro: {type(e).__name__}: {e}",
                             }
                             st.rerun()
 
-    with aba_reativ:
-        st.caption(
-            "Fornecedores que foram desativados (por unificação acidental, por exemplo) "
-            "podem ser reativados aqui. **Os lançamentos NÃO voltam automaticamente** — "
-            "use a aba 'Reatribuir lançamentos' pra recuperá-los."
-        )
-
+    with aba2:
+        st.caption("Reativar fornecedores que foram desativados.")
         inativos = [f for f in fornecedores if not f.get("ativo", True)]
-
         if not inativos:
-            st.info("✅ Nenhum fornecedor inativo.")
+            st.info("✅ Nenhum inativo.")
         else:
-            st.markdown(f"**{len(inativos)}** fornecedor(es) inativo(s):")
+            st.markdown(f"**{len(inativos)}** inativo(s):")
             for f in inativos:
                 col_n, col_b = st.columns([3, 1])
                 with col_n:
                     st.markdown(f"- **ID {f['id']}**: `{f['nome']}` ({f['cnpj']})")
                 with col_b:
-                    if st.button(
-                        "✅ Reativar",
-                        key=f"fin_rep_reat_{f['id']}",
-                    ):
+                    if st.button("✅ Reativar", key=f"fin_rep_re_{f['id']}"):
                         try:
                             _reativar_fornecedor(f["id"])
                             st.session_state["fin_rep_msg"] = {
@@ -229,6 +177,6 @@ def renderizar_fin_reparo(usuario):
                         except Exception as e:
                             st.session_state["fin_rep_msg"] = {
                                 "tipo": "erro",
-                                "texto": f"❌ Erro: {e}",
+                                "texto": f"❌ {e}",
                             }
                             st.rerun()

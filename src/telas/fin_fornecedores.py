@@ -1,10 +1,5 @@
-"""
-Tela Financeiro · Cadastro de Fornecedores
-
-CRUD de fornecedores + detecção de duplicados por CNPJ + unificação manual.
-"""
+"""Tela Financeiro · Fornecedores — CRUD + Detectar duplicados por CNPJ."""
 from __future__ import annotations
-
 import re
 import pandas as pd
 import streamlit as st
@@ -31,7 +26,7 @@ def _atualizar_fornecedor_completo(forn_id, nome, categoria, municipio, uf, ativ
     }).eq("id", forn_id).execute()
 
 
-def _propagar_nome_para_gastos(forn_id, novo_nome):
+def _propagar_nome(forn_id, novo_nome):
     sb = obter_conexao()
     res = (sb.table("dados_financeiro_gasto")
            .update({"nome_fornecedor": novo_nome})
@@ -39,7 +34,7 @@ def _propagar_nome_para_gastos(forn_id, novo_nome):
     return len(res.data) if res.data else 0
 
 
-def _propagar_categoria_para_gastos(forn_id, nova_cat):
+def _propagar_categoria(forn_id, nova_cat):
     sb = obter_conexao()
     res = (sb.table("dados_financeiro_gasto")
            .update({"categoria": nova_cat})
@@ -47,24 +42,23 @@ def _propagar_categoria_para_gastos(forn_id, nova_cat):
     return len(res.data) if res.data else 0
 
 
-def _unificar_fornecedores(id_origem, id_destino):
-    """Move lançamentos do origem pro destino, desativa o origem."""
+def _unificar(id_origem, id_destino):
     sb = obter_conexao()
-    destino_res = sb.table("fornecedor_financeiro").select("*").eq("id", id_destino).limit(1).execute()
-    if not destino_res.data:
-        raise ValueError(f"Destino (ID {id_destino}) não encontrado.")
-    destino = destino_res.data[0]
+    dest = sb.table("fornecedor_financeiro").select("*").eq("id", id_destino).limit(1).execute()
+    if not dest.data:
+        raise ValueError(f"Destino {id_destino} não encontrado")
+    d = dest.data[0]
     upd = (sb.table("dados_financeiro_gasto")
            .update({
                "fornecedor_id": id_destino,
-               "cnpj_fornecedor": destino["cnpj"],
-               "nome_fornecedor": destino["nome"],
-               "categoria": destino.get("categoria"),
+               "cnpj_fornecedor": d["cnpj"],
+               "nome_fornecedor": d["nome"],
+               "categoria": d.get("categoria"),
            })
            .eq("fornecedor_id", id_origem).execute())
     movidos = len(upd.data) if upd.data else 0
     sb.table("fornecedor_financeiro").update({"ativo": False}).eq("id", id_origem).execute()
-    return {"movidos": movidos}
+    return movidos
 
 
 def renderizar_fin_fornecedores(usuario):
@@ -73,8 +67,8 @@ def renderizar_fin_fornecedores(usuario):
         unsafe_allow_html=True,
     )
     st.caption(
-        "Edite cadastros e detecte duplicações. "
-        "Se algo der errado, use a tela **🔧 Reparo** pra recuperar."
+        "Edite cadastros e detecte duplicados por CNPJ. "
+        "Pra recuperar dados, use 🔧 Reparo."
     )
 
     msg = st.session_state.pop("fin_forn_msg", None)
@@ -93,16 +87,15 @@ def renderizar_fin_fornecedores(usuario):
 
     sb = obter_conexao()
     gastos = sb.table("dados_financeiro_gasto").select("fornecedor_id, valor").execute().data or []
-    contagem = {}
-    valores = {}
+    contagem, valores = {}, {}
     for g in gastos:
         fid = g["fornecedor_id"]
         contagem[fid] = contagem.get(fid, 0) + 1
         valores[fid] = valores.get(fid, 0) + float(g.get("valor", 0))
 
-    # ─── Tabela ─────────────────────────
+    # ─── Tabela
     st.markdown("### 📋 Fornecedores cadastrados")
-    filtro = st.radio("Filtrar", ["Todos", "Só ativos", "Só inativos"], horizontal=True, key="fin_forn_filt")
+    filtro = st.radio("Filtrar", ["Todos", "Só ativos", "Só inativos"], horizontal=True, key="fin_f_filt")
     if filtro == "Só ativos":
         forn_filt = [f for f in fornecedores if f.get("ativo", True)]
     elif filtro == "Só inativos":
@@ -123,45 +116,43 @@ def renderizar_fin_fornecedores(usuario):
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
     st.caption(f"Total: **{len(forn_filt)}** fornecedor(es)")
 
-    # ─── DETECÇÃO DE DUPLICADOS ─────────────────────────
-    fornecedores_ativos = [f for f in fornecedores if f.get("ativo", True)]
-
+    # ─── Detector de duplicados
     st.markdown("---")
     st.markdown("### 🔍 Detectar duplicados por CNPJ")
-    st.caption("Lista cadastros que têm o **mesmo CNPJ**. Você confirma cada unificação manualmente.")
 
-    def _so_digitos(s):
+    fornecedores_ativos = [f for f in fornecedores if f.get("ativo", True)]
+
+    def _so_digs(s):
         return re.sub(r"\D", "", s or "")
 
     por_cnpj = {}
     for f in fornecedores_ativos:
-        cnpj_norm = _so_digitos(f.get("cnpj", ""))
-        if cnpj_norm:
-            por_cnpj.setdefault(cnpj_norm, []).append(f)
+        c = _so_digs(f.get("cnpj", ""))
+        if c:
+            por_cnpj.setdefault(c, []).append(f)
 
     duplicados = {k: v for k, v in por_cnpj.items() if len(v) >= 2}
+
     st.caption(
         f"🔎 **{len(fornecedores_ativos)}** ativo(s) · "
         f"**{len(por_cnpj)}** CNPJ(s) único(s) · "
-        f"**{len(duplicados)}** com duplicação"
+        f"**{len(duplicados)}** duplicado(s)"
     )
 
     if not duplicados:
-        st.success("✅ Nenhum CNPJ duplicado entre os ativos.")
+        st.success("✅ Nenhum CNPJ duplicado.")
     else:
-        st.warning(f"⚠️ Encontrei **{len(duplicados)}** CNPJ(s) duplicado(s):")
+        st.warning(f"⚠️ Encontrei {len(duplicados)} CNPJ(s) com mais de um cadastro:")
         for cnpj, grupo in duplicados.items():
-            grupo_ord = sorted(
-                grupo,
-                key=lambda f: (contagem.get(f["id"], 0), valores.get(f["id"], 0)),
-                reverse=True,
-            )
-            destino_sug = grupo_ord[0]
+            grupo_ord = sorted(grupo, key=lambda f: (
+                contagem.get(f["id"], 0), valores.get(f["id"], 0)
+            ), reverse=True)
+            dest_sug = grupo_ord[0]
             cnpj_fmt = grupo_ord[0].get("cnpj", cnpj)
 
             with st.expander(f"🔁 CNPJ **{cnpj_fmt}** ({len(grupo)} cadastros)", expanded=True):
                 for f in grupo_ord:
-                    marca = "🟢 MANTER (sugerido)" if f["id"] == destino_sug["id"] else "🔴 ABSORVER"
+                    marca = "🟢 MANTER" if f["id"] == dest_sug["id"] else "🔴 ABSORVER"
                     st.markdown(
                         f"- **ID {f['id']}**: `{f['nome']}` — "
                         f"{contagem.get(f['id'], 0)} NF · "
@@ -169,138 +160,124 @@ def renderizar_fin_fornecedores(usuario):
                     )
 
                 opcoes = {
-                    f"ID {f['id']} — {f['nome']} ({contagem.get(f['id'], 0)} NF, "
-                    f"{formatar_brl(valores.get(f['id'], 0))})": f
-                    for f in grupo_ord
+                    f"ID {f['id']} — {f['nome']}": f for f in grupo_ord
                 }
 
                 col_d, col_o = st.columns(2)
                 with col_d:
                     st.markdown("**🟢 MANTER:**")
                     keys = list(opcoes.keys())
-                    idx_sug = next((i for i, k in enumerate(keys) if opcoes[k]["id"] == destino_sug["id"]), 0)
+                    idx_sug = next(
+                        (i for i, k in enumerate(keys) if opcoes[k]["id"] == dest_sug["id"]),
+                        0,
+                    )
                     sel_d = st.selectbox(
                         "Destino", keys, index=idx_sug,
-                        key=f"dup_dest_{cnpj}",
-                        label_visibility="collapsed",
+                        key=f"fd_d_{cnpj}", label_visibility="collapsed",
                     )
-                    forn_destino = opcoes[sel_d]
+                    forn_d = opcoes[sel_d]
 
                 with col_o:
                     st.markdown("**🔴 ABSORVER:**")
-                    keys_orig = [k for k in opcoes if opcoes[k]["id"] != forn_destino["id"]]
-                    sel_origens = st.multiselect(
-                        "Origens", keys_orig, default=keys_orig,
-                        key=f"dup_orig_{cnpj}",
-                        label_visibility="collapsed",
+                    keys_o = [k for k in opcoes if opcoes[k]["id"] != forn_d["id"]]
+                    sel_o = st.multiselect(
+                        "Origens", keys_o, default=keys_o,
+                        key=f"fd_o_{cnpj}", label_visibility="collapsed",
                     )
-                    forn_origens = [opcoes[k] for k in sel_origens]
+                    forn_origens = [opcoes[k] for k in sel_o]
 
                 if not forn_origens:
                     st.info("Selecione pelo menos 1 origem.")
                     continue
 
-                # Confirmação por texto (anti-duplo-clique)
                 confirma = st.text_input(
-                    f"Pra confirmar a unificação desse CNPJ, digite **UNIFICAR**:",
-                    key=f"dup_conf_{cnpj}",
-                    placeholder="UNIFICAR",
+                    "Digite **UNIFICAR** pra liberar o botão:",
+                    key=f"fd_c_{cnpj}", placeholder="UNIFICAR",
                 )
-                pode_unif = confirma.strip().upper() == "UNIFICAR"
+                pode = confirma.strip().upper() == "UNIFICAR"
 
                 if st.button(
-                    f"🔗 Unificar {len(forn_origens)} → {forn_destino['nome'][:40]}",
-                    type="primary",
-                    disabled=not pode_unif,
+                    f"🔗 Unificar {len(forn_origens)} → {forn_d['nome'][:40]}",
+                    type="primary", disabled=not pode,
                     use_container_width=True,
-                    key=f"dup_btn_{cnpj}",
+                    key=f"fd_b_{cnpj}",
                 ):
                     try:
-                        total_mov = 0
-                        for forn_origem in forn_origens:
-                            res = _unificar_fornecedores(forn_origem["id"], forn_destino["id"])
-                            total_mov += res["movidos"]
+                        total = 0
+                        for fo in forn_origens:
+                            total += _unificar(fo["id"], forn_d["id"])
                         st.session_state["fin_forn_msg"] = {
                             "tipo": "sucesso",
-                            "texto": (
-                                f"✅ CNPJ **{cnpj_fmt}** unificado!\n"
-                                f"- {total_mov} lançamento(s) movido(s)\n"
-                                f"- {len(forn_origens)} cadastro(s) desativado(s)\n"
-                                f"- Mantido: **{forn_destino['nome']}**"
-                            ),
+                            "texto": f"✅ CNPJ {cnpj_fmt}: {total} lançamento(s) movidos pra {forn_d['nome']}",
                         }
-                        st.toast("✅ Unificado!", icon="✅")
                         st.rerun()
                     except Exception as e:
                         st.session_state["fin_forn_msg"] = {
-                            "tipo": "erro",
-                            "texto": f"❌ Erro: {type(e).__name__}: {e}",
+                            "tipo": "erro", "texto": f"❌ {type(e).__name__}: {e}",
                         }
                         st.rerun()
 
-    # ─── EDITAR FORNECEDOR ─────────────────────────
+    # ─── Editar
     st.markdown("---")
     st.markdown("### ✏️ Editar fornecedor")
-
     opcoes = {f"{f['nome']} — {f['cnpj']} (ID {f['id']})": f for f in forn_filt}
     if not opcoes:
         st.info("Sem fornecedores pra editar.")
         return
 
-    escolha = st.selectbox("Selecione", list(opcoes.keys()), key="fin_forn_sel_edit")
+    escolha = st.selectbox("Selecione", list(opcoes.keys()), key="fin_f_sel")
     forn = opcoes[escolha]
-    qtd_lanc = contagem.get(forn["id"], 0)
-    if qtd_lanc > 0:
-        st.info(f"ℹ️ {qtd_lanc} lançamento(s) gravados. Mudanças podem ser propagadas.")
+    qtd = contagem.get(forn["id"], 0)
+    if qtd > 0:
+        st.info(f"ℹ️ {qtd} lançamento(s). Mudanças podem ser propagadas.")
 
     col_n, col_c = st.columns([2, 1])
     with col_n:
-        novo_nome = st.text_input("Nome *", value=forn["nome"], key=f"e_n_{forn['id']}").upper().strip()
+        novo_nome = st.text_input("Nome *", value=forn["nome"], key=f"en_{forn['id']}").upper().strip()
     with col_c:
-        st.text_input("CNPJ", value=forn["cnpj"], disabled=True, key=f"e_c_{forn['id']}")
+        st.text_input("CNPJ", value=forn["cnpj"], disabled=True, key=f"ec_{forn['id']}")
 
     col_cat, col_mun, col_uf = st.columns([2, 2, 1])
     with col_cat:
         cat_at = forn.get("categoria") or "OUTROS"
         idx = CATEGORIAS_PADRAO.index(cat_at) if cat_at in CATEGORIAS_PADRAO else CATEGORIAS_PADRAO.index("OUTROS")
-        nova_cat = st.selectbox("Categoria *", CATEGORIAS_PADRAO, index=idx, key=f"e_cat_{forn['id']}")
+        nova_cat = st.selectbox("Categoria *", CATEGORIAS_PADRAO, index=idx, key=f"ecat_{forn['id']}")
     with col_mun:
-        novo_mun = st.text_input("Município", value=forn.get("municipio") or "", key=f"e_m_{forn['id']}")
+        novo_mun = st.text_input("Município", value=forn.get("municipio") or "", key=f"em_{forn['id']}")
     with col_uf:
-        novo_uf = st.text_input("UF", value=forn.get("uf") or "", max_chars=2, key=f"e_u_{forn['id']}").upper()
+        novo_uf = st.text_input("UF", value=forn.get("uf") or "", max_chars=2, key=f"eu_{forn['id']}").upper()
 
-    novo_ativo = st.checkbox("Ativo", value=forn.get("ativo", True), key=f"e_a_{forn['id']}")
+    novo_ativo = st.checkbox("Ativo", value=forn.get("ativo", True), key=f"ea_{forn['id']}")
 
     mudou_n = novo_nome != forn["nome"]
     mudou_c = nova_cat != (forn.get("categoria") or "OUTROS")
     prop_n = prop_c = False
-    if qtd_lanc > 0 and (mudou_n or mudou_c):
+    if qtd > 0 and (mudou_n or mudou_c):
         st.markdown("##### Propagar mudanças?")
         c1, c2 = st.columns(2)
         if mudou_n:
             with c1:
-                prop_n = st.checkbox(f"📝 Atualizar nome em {qtd_lanc} lançamento(s)", value=True, key=f"p_n_{forn['id']}")
+                prop_n = st.checkbox(f"📝 Atualizar nome em {qtd} lanç.", value=True, key=f"pn_{forn['id']}")
         if mudou_c:
             with c2:
-                prop_c = st.checkbox(f"🏷️ Atualizar categoria em {qtd_lanc} lançamento(s)", value=True, key=f"p_c_{forn['id']}")
+                prop_c = st.checkbox(f"🏷️ Atualizar categoria em {qtd} lanç.", value=True, key=f"pc_{forn['id']}")
 
     if not novo_nome or len(novo_nome) < 3:
-        st.warning("Nome obrigatório (mín. 3 caracteres)")
+        st.warning("Nome obrigatório (mín. 3)")
         return
 
-    if st.button("💾 Salvar alterações", type="primary", use_container_width=True, key=f"e_btn_{forn['id']}"):
+    if st.button("💾 Salvar", type="primary", use_container_width=True, key=f"eb_{forn['id']}"):
         try:
             _atualizar_fornecedor_completo(forn["id"], novo_nome, nova_cat, novo_mun, novo_uf, novo_ativo)
-            partes = ["✅ Cadastro atualizado!"]
+            partes = ["✅ Atualizado!"]
             if prop_n:
-                n = _propagar_nome_para_gastos(forn["id"], novo_nome)
-                partes.append(f"- Nome atualizado em {n} lançamento(s)")
+                n = _propagar_nome(forn["id"], novo_nome)
+                partes.append(f"- Nome em {n} lanç.")
             if prop_c:
-                n = _propagar_categoria_para_gastos(forn["id"], nova_cat)
-                partes.append(f"- Categoria atualizada em {n} lançamento(s)")
+                n = _propagar_categoria(forn["id"], nova_cat)
+                partes.append(f"- Categoria em {n} lanç.")
             st.session_state["fin_forn_msg"] = {"tipo": "sucesso", "texto": "\n".join(partes)}
-            st.toast("✅ Salvo!", icon="✅")
             st.rerun()
         except Exception as e:
-            st.session_state["fin_forn_msg"] = {"tipo": "erro", "texto": f"❌ {type(e).__name__}: {e}"}
+            st.session_state["fin_forn_msg"] = {"tipo": "erro", "texto": f"❌ {e}"}
             st.rerun()

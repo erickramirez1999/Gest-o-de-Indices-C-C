@@ -15,6 +15,7 @@ PERMISSOES = {
     "GESTOR_FINANCEIRO": [
         "inicio", "meu_perfil",
         "fin_upload", "fin_manual", "fin_gastos_mes", "fin_comparativos",
+        "fin_fornecedores", "fin_reparo",
         "admin_usuarios",  # só Relatórios (Financeiro) + Auditoria
     ],
     "DIRETORIA": [
