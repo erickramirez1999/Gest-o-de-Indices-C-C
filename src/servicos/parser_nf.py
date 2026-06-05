@@ -214,6 +214,35 @@ def ler_nf_pdf(arquivo, nome_arquivo: str = "") -> NotaFiscal:
 # EXTRATORES ESPECÍFICOS
 # ============================================================
 
+def _limpar_nome(nome: str) -> str:
+    """
+    Sanitiza nome de fornecedor: remove e-mail, telefone, lixo final.
+    Função é chamada SEMPRE antes de retornar nome do prestador,
+    independente de qual regex pegou.
+    """
+    if not nome:
+        return ""
+
+    # 1) Remove qualquer e-mail (palavra com @ até espaço/fim)
+    nome = re.sub(r"\S*@\S*", "", nome, flags=re.IGNORECASE)
+
+    # 2) Remove telefone tipo (XX) XXXX-XXXX ou similares
+    nome = re.sub(r"\(?\d{2,3}\)?\s*\d{4,5}[\s\-]?\d{4}", "", nome)
+
+    # 3) Remove URLs www.algo.com.br
+    nome = re.sub(r"www\.\S+", "", nome, flags=re.IGNORECASE)
+    nome = re.sub(r"https?://\S+", "", nome, flags=re.IGNORECASE)
+
+    # 4) Tira hífens isolados ("-" sozinhos como placeholder)
+    nome = re.sub(r"\s+-\s+", " ", nome)
+    nome = re.sub(r"\s*-\s*-\s*", " ", nome)
+
+    # 5) Colapsa espaços e tira lixo das pontas
+    nome = re.sub(r"\s+", " ", nome).strip(" -.,;:|")
+
+    return nome
+
+
 def _extrair_nome_prestador(texto: str, cnpj_prestador: Optional[str]) -> str:
     """Acha o nome/razão social do prestador."""
     if not cnpj_prestador:
@@ -234,7 +263,7 @@ def _extrair_nome_prestador(texto: str, cnpj_prestador: Optional[str]) -> str:
         nome = _separar_palavras_coladas(nome)
         nome = re.sub(r"\s+", " ", nome).strip()
         if 3 < len(nome) < 200:
-            return nome.upper()
+            return _limpar_nome(nome).upper()
 
     # FORMATO SOLUTE/PE (DANFSe com espaços):
     # "Nome / Nome Empresarial E-mail\nSOLUTE - SOLUCOES INTELIGENTES LTDA carolina@solutesolucoes.com.br\nEndereço"
@@ -261,7 +290,7 @@ def _extrair_nome_prestador(texto: str, cnpj_prestador: Optional[str]) -> str:
             nome = linha.strip()
         nome = re.sub(r"\s+", " ", nome).strip(" -.")
         if 3 < len(nome) < 200:
-            return nome.upper()
+            return _limpar_nome(nome).upper()
 
     # FORMATO NORMAL (com espaços): SP, Tubarão, etc
     padroes = [
@@ -275,7 +304,7 @@ def _extrair_nome_prestador(texto: str, cnpj_prestador: Optional[str]) -> str:
             nome = m.group(1).strip(" .-:")
             nome = re.sub(r"\s+", " ", nome)
             if 3 < len(nome) < 100 and not nome.isdigit():
-                return nome.upper()
+                return _limpar_nome(nome).upper()
 
     # Padrão fallback: linhas próximas ao CNPJ do prestador
     linhas = texto.split("\n")
@@ -290,7 +319,7 @@ def _extrair_nome_prestador(texto: str, cnpj_prestador: Optional[str]) -> str:
                 ]):
                     cand = re.sub(r"[^\w\s\.\-&áéíóúâêôãõç]", " ", cand, flags=re.I).strip()
                     if 3 < len(cand) < 100 and not cand.isdigit():
-                        return cand.upper()
+                        return _limpar_nome(cand).upper()
             break
 
     return "DESCONHECIDO"
@@ -340,16 +369,31 @@ def _separar_palavras_coladas(texto: str) -> str:
     # Limpa espaços múltiplos antes de aplicar curtas
     resultado = re.sub(r"\s+", " ", resultado).strip()
 
-    # Aplica CURTAS — mas só onde está colada entre 2 palavras já separadas
-    # Ex: "INSTITUTODEESTUDOS" depois das longas vira "INSTITUTO DEESTUDOS"
-    # Quero "INSTITUTO DE ESTUDOS"
+    # Aplica CURTAS — mas só onde está colada entre 2 palavras já separadas.
+    # IMPORTANTE: usa lookahead que garante que a próxima palavra continua maiúscula
+    # MAS exige que a palavra curta tenha algum caractere "fronteira" depois.
+    # Pra evitar que "EM" quebre "EMPRESARIAL" (que começa com EM), só aplica
+    # se a palavra curta for seguida de pelo menos 3 letras maiúsculas E
+    # se ela própria não fizer parte de outra palavra maior conhecida.
+    # Solução simples: aplica curtas só se elas estiverem entre 2 espaços
+    # OU se o que vier antes da curta NÃO fizer parte da palavra atual
+    # (ou seja, a palavra curta tem espaço em volta).
+    # Aqui já viramos "INSTITUTO DEESTUDOS" → "INSTITUTO DE ESTUDOS".
+    # Pra evitar quebrar EMPRESARIAL → EM PRESARIAL, só aplicamos curtas
+    # quando elas APARECEM no meio de uma palavra (sem espaço antes, com letra antes).
     for p in curtas:
-        # Padrão: palavra-curta colada NO INÍCIO de algo
+        # Padrão CORRIGIDO: palavra-curta no início de uma palavra-longa colada
+        # Só separa se a palavra-curta estiver no início, com pelo menos UMA letra maiúscula depois,
+        # MAS sem ter caractere maiúsculo IMEDIATAMENTE antes (senão estaria no meio de outra palavra).
+        # Ex: "DEESTUDOS" → "DE ESTUDOS" (DE no início) ✓
+        # Ex: "EMPRESARIAL" como palavra inteira (espaço antes, espaço depois) → NÃO mexe ✗
         resultado = re.sub(
-            rf"(?i)(?<=\s)({re.escape(p)})(?=[A-ZÁÉÍÓÚÂÊÔÃÕÇ])",
+            rf"(?i)(?<=\s)({re.escape(p)})(?=[A-ZÁÉÍÓÚÂÊÔÃÕÇ]{{2,}})(?![A-ZÁÉÍÓÚÂÊÔÃÕÇ\s]*\s)",
             r"\1 ",
             resultado,
         )
+        # E também: quando aparece grudada no FIM de uma palavra (raro mas pode acontecer)
+        # Ex: "LTDAME" → "LTDA ME" — não comum, então deixamos.
 
     return re.sub(r"\s+", " ", resultado).strip()
 
@@ -364,7 +408,36 @@ def _extrair_municipio_uf_prestador(texto: str) -> tuple[Optional[str], Optional
 
 
 def _extrair_valor_total(texto: str) -> Optional[float]:
-    """Acha o valor total da nota — tenta vários padrões."""
+    """
+    Acha o valor total da nota — tenta vários padrões.
+
+    IMPORTANTE: o "Valor Líquido da NFS-e" tem prioridade absoluta,
+    porque alguns formatos (SERASA/SP) colocam várias colunas de tributos
+    ANTES desse valor na mesma linha — precisa pegar o ÚLTIMO valor antes
+    da próxima seção (TOTAIS DOS TRIBUTOS, INFORMAÇÕES, etc).
+    """
+    # Padrão prioritário: "Valor Líquido da NFS-e" — pegar o ÚLTIMO R$
+    # da janela seguinte (porque pode ter outras colunas de tributos antes)
+    for pat_label in [
+        r"ValorL[íi]quidodaNFS-?e",                # RJ/SERASA sem espaços
+        r"Valor\s+L[íi]quido(?:\s+da\s+NFS-?e)?",  # formato normal
+    ]:
+        m = re.search(pat_label, texto, re.IGNORECASE)
+        if m:
+            janela = texto[m.end():m.end() + 200]
+            fim = re.search(
+                r"TOTAIS|INFORMA|TRIBUTA[ÇC][ÃA]O|Federais\s|Estaduais\s|Municipais\s|NBS",
+                janela, re.IGNORECASE,
+            )
+            if fim:
+                janela = janela[:fim.start()]
+            valores = re.findall(r"R\$\s*([\d.,]+)", janela)
+            if valores:
+                v = _parse_valor_brl(valores[-1])
+                if v and v > 0:
+                    return v
+
+    # Fallbacks pra outros formatos:
     padroes = [
         # SP: "VALOR TOTAL DO SERVIÇO = R$ 12.000,00"
         r"VALOR\s+TOTAL\s+DO\s+SERVI[ÇC]O\s*=?\s*R?\$?\s*([\d.,]+)",
@@ -372,13 +445,7 @@ def _extrair_valor_total(texto: str) -> Optional[float]:
         r"VALOR\s+TOTAL\s+DA\s+NOTA\s*=?\s*R?\$?\s*([\d.,]+)",
         # SP novo: "VALOR TOTAL COBRADO = R$ 12.000,00"
         r"VALOR\s+TOTAL\s+COBRADO\s*=?\s*R?\$?\s*([\d.,]+)",
-        # RJ formato normal: "Valor Líquido da NFS-e\nR$ 578,97"
-        r"Valor\s+L[íi]quido(?:\s+da\s+NFS-?e)?\s*[\n:]*\s*R?\$?\s*([\d.,]+)",
-        # RJ DANFSe SEM ESPAÇO: "ValorLíquidodaNFS-e\nR$597,35"
-        r"ValorL[íi]quidodaNFS-?e[\s\S]{0,80}?R\$\s*([\d.,]+)",
         # SOLUTE/PE (DANFSe v1.0 com espaços mas múltiplas colunas):
-        # "Valor do Serviço Desconto Incondicionado Total Deduções/Reduções Cálculo do BM\nR$ 396,44 - - -"
-        # O label e o valor podem ter outras colunas no meio.
         r"Valor\s+do\s+Servi[çc]o[\s\S]{0,150}?R\$\s*([\d.,]+)",
         # Fallback: "Valor do Serviço" (RJ normal)
         r"Valor\s+do\s+Servi[çc]o\s*[\n:]*\s*R?\$?\s*([\d.,]+)",
