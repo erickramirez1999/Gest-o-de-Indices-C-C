@@ -454,16 +454,30 @@ def _bloco_detectar_duplicados(fornecedores_ativos: list, contagem: dict, valore
         st.info("Precisa ter pelo menos 2 fornecedores ativos pra checar duplicados.")
         return
 
-    # Agrupa por CNPJ
+    # Agrupa por CNPJ NORMALIZADO (só dígitos) — pra pegar caso de formatação diferente
+    import re as _re_dup
+    def _so_digitos(s):
+        return _re_dup.sub(r"\D", "", s or "")
+
     por_cnpj = {}
     for f in fornecedores_ativos:
-        cnpj = f.get("cnpj", "").strip()
-        if not cnpj:
+        cnpj_raw = f.get("cnpj", "")
+        cnpj_norm = _so_digitos(cnpj_raw)
+        if not cnpj_norm:
             continue
-        por_cnpj.setdefault(cnpj, []).append(f)
+        por_cnpj.setdefault(cnpj_norm, []).append(f)
 
     # Filtra grupos com 2+ cadastros
     duplicados = {cnpj: lst for cnpj, lst in por_cnpj.items() if len(lst) >= 2}
+
+    # Diagnóstico: mostra qtos cadastros tem e qtos CNPJs únicos
+    qtd_total = len(fornecedores_ativos)
+    qtd_cnpj_unicos = len(por_cnpj)
+    st.caption(
+        f"🔎 Diagnóstico: **{qtd_total}** fornecedor(es) ativo(s) · "
+        f"**{qtd_cnpj_unicos}** CNPJ(s) único(s) · "
+        f"**{len(duplicados)}** CNPJ(s) com duplicação"
+    )
 
     if not duplicados:
         st.success("✅ Nenhum CNPJ duplicado detectado entre os fornecedores ativos.")
@@ -494,7 +508,11 @@ def _bloco_detectar_duplicados(fornecedores_ativos: list, contagem: dict, valore
                 f"- **ID {f['id']}**: `{f['nome']}` — {qtd_nf} NF · {formatar_brl(total)} — {marcador}"
             )
 
-        with st.expander(f"🔁 CNPJ **{cnpj}** ({len(grupo)} cadastros)", expanded=True):
+        # CNPJ formatado vem do primeiro fornecedor (pode haver pequenas variações
+        # de formato entre os duplicados, mas escolhemos um)
+        cnpj_formatado = grupo_ord[0].get("cnpj", cnpj)
+
+        with st.expander(f"🔁 CNPJ **{cnpj_formatado}** ({len(grupo)} cadastros)", expanded=True):
             st.markdown("\n".join(linhas_info))
 
             st.markdown("##### Confirmar quem mantém e quem absorve:")
@@ -573,7 +591,7 @@ def _bloco_detectar_duplicados(fornecedores_ativos: list, contagem: dict, valore
                     st.session_state["fin_forn_msg"] = {
                         "tipo": "sucesso",
                         "texto": (
-                            f"✅ CNPJ **{cnpj}** unificado!\n"
+                            f"✅ CNPJ **{cnpj_formatado}** unificado!\n"
                             f"- **{total_movidos}** lançamento(s) movido(s)\n"
                             f"- **{len(forn_origens)}** cadastro(s) desativado(s)\n"
                             f"- Mantido: **{forn_destino['nome']}**"
