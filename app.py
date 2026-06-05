@@ -46,7 +46,9 @@ PAGINAS_CREDITO = {
 
 PAGINAS_FINANCEIRO = {
     "fin_upload": "💼 Upload de NFs",
+    "fin_manual": "✍️ Cadastro Manual",
     "fin_gastos_mes": "📊 Gastos do Mês",
+    "fin_comparativos": "📈 Comparativos",
 }
 
 
@@ -324,9 +326,9 @@ def sidebar_logado(usuario):
 
         if pode_financeiro:
             st.markdown("**💼 Financeiro**")
-            # Pra Diretoria, esconde o Upload (só visualiza)
+            # Pra Diretoria, esconde Upload e Manual (só visualiza)
             for chave, label in PAGINAS_FINANCEIRO.items():
-                if chave == "fin_upload" and not pode_financeiro_upload:
+                if chave in ("fin_upload", "fin_manual") and not pode_financeiro_upload:
                     continue
                 if st.button(label, key=f"nav_{chave}", use_container_width=True):
                     ir_para(chave)
@@ -399,9 +401,15 @@ def renderizar_pagina(usuario, pagina: str):
     elif pagina == "fin_upload":
         from src.telas.fin_upload import renderizar_fin_upload
         renderizar_fin_upload(usuario)
+    elif pagina == "fin_manual":
+        from src.telas.fin_manual import renderizar_fin_manual
+        renderizar_fin_manual(usuario)
     elif pagina == "fin_gastos_mes":
         from src.telas.fin_gastos_mes import renderizar_fin_gastos_mes
         renderizar_fin_gastos_mes(usuario)
+    elif pagina == "fin_comparativos":
+        from src.telas.fin_comparativos import renderizar_fin_comparativos
+        renderizar_fin_comparativos(usuario)
     elif pagina == "admin_usuarios":
         from src.telas.admin_usuarios import renderizar_usuarios
         renderizar_usuarios(usuario)
@@ -489,7 +497,7 @@ def _tela_inicio(usuario):
                 </div>""",
                 unsafe_allow_html=True,
             )
-            destino = "fin_upload" if usuario.perfil in ("ADMIN", "GESTOR_FINANCEIRO") else "fin_gastos_mes"
+            destino = "fin_comparativos" if usuario.perfil == "DIRETORIA" else "fin_upload"
             if st.button("💼 Acessar Financeiro", use_container_width=True, type="primary"):
                 ir_para(destino)
                 st.rerun()

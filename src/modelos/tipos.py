@@ -14,14 +14,14 @@ PERMISSOES = {
     ],
     "GESTOR_FINANCEIRO": [
         "inicio", "meu_perfil",
-        "fin_upload", "fin_gastos_mes",
+        "fin_upload", "fin_manual", "fin_gastos_mes", "fin_comparativos",
         "admin_usuarios",  # só Relatórios (Financeiro) + Auditoria
     ],
     "DIRETORIA": [
         "inicio", "meu_perfil",
         "cob_acordo", "cob_cobranca", "cob_performance", "cob_geral",
         "cred_indicadores", "cred_reanalises", "cred_geral",
-        "fin_gastos_mes",
+        "fin_gastos_mes", "fin_comparativos",
     ],
 }
 

@@ -221,20 +221,45 @@ def _extrair_nome_prestador(texto: str, cnpj_prestador: Optional[str]) -> str:
 
     # FORMATO RJ DANFSe SEM ESPAÇO:
     # "Nome/NomeEmpresarial E-mail\nINSTITUTODEESTUDOSDEPROTESTODETITULOSDOBRASIL-\nSECCIONALRJ\nEndereço"
-    # O label tem "E-mail" na MESMA linha ('Nome/NomeEmpresarial E-mail').
     m = re.search(
         r"Nome/NomeEmpresarial\s*E-?mail\s*\n([\s\S]+?)\nEndere[çc]o",
         texto, re.IGNORECASE,
     )
     if m:
         nome_bruto = m.group(1)
-        # Limpa: tira hífens soltos, quebras de linha, espaços extras
         nome = re.sub(r"[\n\r]+", " ", nome_bruto)
-        nome = re.sub(r"\s*-\s*-\s*", " ", nome)  # "- -" vira espaço
+        nome = re.sub(r"\s*-\s*-\s*", " ", nome)
         nome = re.sub(r"\s+-\s+", " ", nome)
         nome = re.sub(r"\s+", " ", nome).strip(" -.")
         nome = _separar_palavras_coladas(nome)
         nome = re.sub(r"\s+", " ", nome).strip()
+        if 3 < len(nome) < 200:
+            return nome.upper()
+
+    # FORMATO SOLUTE/PE (DANFSe com espaços):
+    # "Nome / Nome Empresarial E-mail\nSOLUTE - SOLUCOES INTELIGENTES LTDA carolina@solutesolucoes.com.br\nEndereço"
+    # O label "E-mail" está na MESMA linha que "Nome / Nome Empresarial",
+    # e na próxima vem o nome + e-mail separados por espaços.
+    m = re.search(
+        r"Nome\s*/\s*Nome\s+Empresarial\s+E-?mail\s*\n([^\n]+)\n(?:Endere[çc]o|Munic[íi]pio)",
+        texto, re.IGNORECASE,
+    )
+    if m:
+        linha = m.group(1).strip()
+        # O e-mail está no final da linha; corta tudo antes do primeiro '@'
+        # voltando até o último espaço (que separa nome do email)
+        idx_at = linha.find("@")
+        if idx_at > 0:
+            # Procura o último espaço antes do @
+            antes = linha[:idx_at]
+            ultimo_espaco = antes.rfind(" ")
+            if ultimo_espaco > 0:
+                nome = linha[:ultimo_espaco].strip()
+            else:
+                nome = linha[:idx_at].strip()
+        else:
+            nome = linha.strip()
+        nome = re.sub(r"\s+", " ", nome).strip(" -.")
         if 3 < len(nome) < 200:
             return nome.upper()
 
@@ -349,8 +374,12 @@ def _extrair_valor_total(texto: str) -> Optional[float]:
         r"VALOR\s+TOTAL\s+COBRADO\s*=?\s*R?\$?\s*([\d.,]+)",
         # RJ formato normal: "Valor Líquido da NFS-e\nR$ 578,97"
         r"Valor\s+L[íi]quido(?:\s+da\s+NFS-?e)?\s*[\n:]*\s*R?\$?\s*([\d.,]+)",
-        # RJ DANFSe SEM ESPAÇO: "ValorLíquidodaNFS-e\nR$597,35" (label e valor podem ter texto entre eles)
+        # RJ DANFSe SEM ESPAÇO: "ValorLíquidodaNFS-e\nR$597,35"
         r"ValorL[íi]quidodaNFS-?e[\s\S]{0,80}?R\$\s*([\d.,]+)",
+        # SOLUTE/PE (DANFSe v1.0 com espaços mas múltiplas colunas):
+        # "Valor do Serviço Desconto Incondicionado Total Deduções/Reduções Cálculo do BM\nR$ 396,44 - - -"
+        # O label e o valor podem ter outras colunas no meio.
+        r"Valor\s+do\s+Servi[çc]o[\s\S]{0,150}?R\$\s*([\d.,]+)",
         # Fallback: "Valor do Serviço" (RJ normal)
         r"Valor\s+do\s+Servi[çc]o\s*[\n:]*\s*R?\$?\s*([\d.,]+)",
         # Fallback RJ SEM ESPAÇO
