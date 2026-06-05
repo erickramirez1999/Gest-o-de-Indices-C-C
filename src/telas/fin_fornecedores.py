@@ -6,6 +6,7 @@ CRUD de fornecedores:
   - Permite editar nome, categoria, município, UF
   - Permite ativar/desativar
   - Mostra quantas NFs cada fornecedor já teve lançadas
+  - Permite propagar mudanças de nome/categoria pros lançamentos existentes
 """
 from __future__ import annotations
 
@@ -42,8 +43,8 @@ def _atualizar_fornecedor_completo(forn_id: int, nome: str, categoria: str,
 
 def _propagar_nome_para_gastos(forn_id: int, novo_nome: str) -> int:
     """
-    Atualiza o nome_fornecedor (snapshot) em TODOS os lançamentos
-    desse fornecedor. Retorna quantos foram atualizados.
+    Atualiza nome_fornecedor (snapshot) em TODOS os lançamentos do fornecedor.
+    Retorna quantos foram atualizados.
     """
     sb = obter_conexao()
     res = (sb.table("dados_financeiro_gasto")
@@ -84,7 +85,6 @@ def renderizar_fin_fornecedores(usuario):
         else:
             st.error(msg["texto"])
 
-    # Carrega fornecedores
     fornecedores = repo_financeiro.listar_fornecedores(apenas_ativos=False)
 
     if not fornecedores:
@@ -106,7 +106,6 @@ def renderizar_fin_fornecedores(usuario):
     # ─── Tabela de fornecedores ─────────────────────────
     st.markdown("### 📋 Fornecedores cadastrados")
 
-    # Filtro: ativos / inativos / todos
     filtro_status = st.radio(
         "Filtrar",
         ["Todos", "Só ativos", "Só inativos"],
@@ -136,7 +135,6 @@ def renderizar_fin_fornecedores(usuario):
 
     df = pd.DataFrame(rows)
     st.dataframe(df, use_container_width=True, hide_index=True)
-
     st.caption(f"Total: **{len(forn_filt)}** fornecedor(es)")
 
     # ─── Editar fornecedor ─────────────────────────
@@ -209,7 +207,7 @@ def renderizar_fin_fornecedores(usuario):
         "Ativo",
         value=forn.get("ativo", True),
         key=f"edit_ativo_{forn['id']}",
-        help="Desativar não apaga os lançamentos existentes, só esconde nas listas de cadastro.",
+        help="Desativar não apaga lançamentos, só esconde nas listas de novo cadastro.",
     )
 
     # Detecta o que mudou
