@@ -45,6 +45,7 @@ def upsert_cadastros_em_lote(
     registros: list[dict],
     nome_arquivo_origem: Optional[str] = None,
     criado_por_id: Optional[int] = None,
+    callback_progresso=None,
 ) -> dict:
     """
     Insere/atualiza cadastros em lote.
@@ -55,10 +56,10 @@ def upsert_cadastros_em_lote(
       - canal_origem (str ou None)
       - data_cadastramento (date)
 
-    Retorna dict com: criados, atualizados, ignorados, total
+    Retorna dict com: criados, atualizados, ignorados, total, erros
     """
     if not registros:
-        return {"criados": 0, "atualizados": 0, "ignorados": 0, "total": 0}
+        return {"criados": 0, "atualizados": 0, "ignorados": 0, "total": 0, "erros": []}
 
     sb = obter_conexao()
 
@@ -130,24 +131,47 @@ def upsert_cadastros_em_lote(
         else:
             criados += 1
 
-    # Upsert em LOTES PEQUENOS (200 por vez) pra evitar erro de payload grande
+    # Upsert em LOTES PEQUENOS (100 por vez) — Supabase aceita melhor
     if lote:
-        TAMANHO_LOTE = 200
-        for i in range(0, len(lote), TAMANHO_LOTE):
+        TAMANHO_LOTE = 100
+        total_lotes = (len(lote) + TAMANHO_LOTE - 1) // TAMANHO_LOTE
+        lotes_falhados_seguidos = 0
+        primeiro_erro_lote = None
+
+        for idx_lote, i in enumerate(range(0, len(lote), TAMANHO_LOTE)):
             chunk = lote[i:i + TAMANHO_LOTE]
+
+            if callback_progresso:
+                callback_progresso(idx_lote + 1, total_lotes, len(chunk))
+
             try:
                 sb.table("dados_cadastros").upsert(chunk, on_conflict="cod_parceiro").execute()
+                lotes_falhados_seguidos = 0
             except Exception as e:
-                # Tenta um por um pra identificar a linha problemática
-                for item in chunk:
-                    try:
-                        sb.table("dados_cadastros").upsert([item], on_conflict="cod_parceiro").execute()
-                    except Exception as e2:
-                        erros_detalhe.append({
-                            "cod_parceiro": item["cod_parceiro"],
-                            "nome": item["nome_parceiro"][:50],
-                            "erro": str(e2)[:200],
-                        })
+                lotes_falhados_seguidos += 1
+                if primeiro_erro_lote is None:
+                    primeiro_erro_lote = str(e)[:500]
+
+                # Se 3 lotes seguidos falharem, é erro sistêmico — para aqui
+                if lotes_falhados_seguidos >= 3:
+                    erros_detalhe.append({
+                        "cod_parceiro": "(múltiplos)",
+                        "nome": f"PARADO após {lotes_falhados_seguidos} lotes consecutivos falhando",
+                        "erro": primeiro_erro_lote,
+                    })
+                    break
+
+                # Tenta linha por linha SÓ no primeiro lote falho (pra identificar problema)
+                if lotes_falhados_seguidos == 1:
+                    for item in chunk:
+                        try:
+                            sb.table("dados_cadastros").upsert([item], on_conflict="cod_parceiro").execute()
+                        except Exception as e2:
+                            erros_detalhe.append({
+                                "cod_parceiro": item["cod_parceiro"],
+                                "nome": item["nome_parceiro"][:50],
+                                "erro": str(e2)[:200],
+                            })
 
     return {
         "criados": criados,

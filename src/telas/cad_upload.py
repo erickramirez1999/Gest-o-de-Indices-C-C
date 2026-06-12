@@ -148,33 +148,54 @@ def renderizar_cad_upload(usuario):
                     "data_cadastramento": row["Data cadastramento"].date(),
                 })
 
+            # Progress bar em tempo real
+            progresso_placeholder = st.empty()
+            barra = st.progress(0.0)
+
+            def atualizar_progresso(lote_atual, total_lotes, tam_chunk):
+                pct = lote_atual / total_lotes
+                barra.progress(pct)
+                progresso_placeholder.info(
+                    f"📤 Enviando lote {lote_atual}/{total_lotes} "
+                    f"(~{lote_atual * tam_chunk} de {len(registros)} registros)..."
+                )
+
             res = repo_cadastros.upsert_cadastros_em_lote(
                 registros,
                 nome_arquivo_origem=arquivo.name,
                 criado_por_id=usuario.id,
+                callback_progresso=atualizar_progresso,
             )
+
+            barra.empty()
+            progresso_placeholder.empty()
 
             st.session_state["cad_hash_processado"] = hash_arq
 
-            # Se teve erros isolados, mostra em expander
             qtd_erros = len(res.get("erros", []))
-            erros_txt = ""
-            if qtd_erros > 0:
-                erros_txt = f"\n- ⚠️ Erros em **{qtd_erros}** linhas (clique no expander abaixo)"
-
-            st.session_state["cad_upload_msg"] = {
-                "tipo": "sucesso" if qtd_erros == 0 else "aviso",
-                "texto": (
-                    f"✅ **{res['total']}** registros processados:\n"
-                    f"- 🆕 Criados: **{res['criados']}**\n"
-                    f"- 🔄 Atualizados: **{res['atualizados']}**\n"
-                    f"- ⏭️ Ignorados (sem dados): {res['ignorados']}{erros_txt}"
-                ),
-            }
-            if qtd_erros > 0:
+            if qtd_erros == 0:
+                st.session_state["cad_upload_msg"] = {
+                    "tipo": "sucesso",
+                    "texto": (
+                        f"✅ **{res['total']}** registros gravados com sucesso!\n"
+                        f"- 🆕 Criados: **{res['criados']}**\n"
+                        f"- 🔄 Atualizados: **{res['atualizados']}**\n"
+                        f"- ⏭️ Ignorados: {res['ignorados']}"
+                    ),
+                }
+            else:
+                st.session_state["cad_upload_msg"] = {
+                    "tipo": "aviso",
+                    "texto": (
+                        f"⚠️ **{qtd_erros}** linha(s) falharam.\n"
+                        f"- 🆕 Criados: **{res['criados']}**\n"
+                        f"- 🔄 Atualizados: **{res['atualizados']}**\n"
+                        f"- ❌ Erros: **{qtd_erros}** (veja detalhes abaixo)"
+                    ),
+                }
                 st.session_state["cad_upload_erros"] = res["erros"]
 
-            st.toast("✅ Cadastros gravados!", icon="✅")
+            st.toast("Processamento concluído", icon="✅")
             st.rerun()
         except Exception as e:
             st.session_state["cad_upload_msg"] = {
