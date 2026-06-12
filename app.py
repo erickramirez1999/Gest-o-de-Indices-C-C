@@ -53,6 +53,11 @@ PAGINAS_FINANCEIRO = {
     "fin_reparo": "🔧 Reparo",
 }
 
+PAGINAS_CADASTROS = {
+    "cad_dashboard": "📊 Dashboard",
+    "cad_upload": "📥 Upload da Planilha",
+}
+
 
 def pagina_atual():
     return st.session_state.get("pagina", "inicio")
@@ -307,6 +312,8 @@ def sidebar_logado(usuario):
         pode_credito = usuario.perfil in ("ADMIN", "GESTOR_CREDITO", "DIRETORIA")
         pode_financeiro = usuario.perfil in ("ADMIN", "GESTOR_FINANCEIRO", "DIRETORIA")
         pode_financeiro_upload = usuario.perfil in ("ADMIN", "GESTOR_FINANCEIRO")
+        pode_cadastros = usuario.perfil in ("ADMIN", "GESTOR_FINANCEIRO", "GESTOR_COBRANCA", "GESTOR_CREDITO", "DIRETORIA")
+        pode_cadastros_upload = usuario.perfil in ("ADMIN", "GESTOR_FINANCEIRO", "GESTOR_COBRANCA", "GESTOR_CREDITO")
         pode_upload = usuario.perfil in ("ADMIN", "GESTOR_COBRANCA", "GESTOR_CREDITO")
         eh_admin = usuario.perfil == "ADMIN"
 
@@ -331,6 +338,17 @@ def sidebar_logado(usuario):
             # Pra Diretoria, esconde Upload e Manual (só visualiza)
             for chave, label in PAGINAS_FINANCEIRO.items():
                 if chave in ("fin_upload", "fin_manual", "fin_fornecedores", "fin_reparo") and not pode_financeiro_upload:
+                    continue
+                if st.button(label, key=f"nav_{chave}", use_container_width=True):
+                    ir_para(chave)
+                    st.rerun()
+            st.markdown("")
+
+        if pode_cadastros:
+            st.markdown("**📇 Cadastros**")
+            for chave, label in PAGINAS_CADASTROS.items():
+                # Diretoria não sobe planilha
+                if chave == "cad_upload" and not pode_cadastros_upload:
                     continue
                 if st.button(label, key=f"nav_{chave}", use_container_width=True):
                     ir_para(chave)
@@ -418,6 +436,12 @@ def renderizar_pagina(usuario, pagina: str):
     elif pagina == "fin_reparo":
         from src.telas.fin_reparo import renderizar_fin_reparo
         renderizar_fin_reparo(usuario)
+    elif pagina == "cad_dashboard":
+        from src.telas.cad_dashboard import renderizar_cad_dashboard
+        renderizar_cad_dashboard(usuario)
+    elif pagina == "cad_upload":
+        from src.telas.cad_upload import renderizar_cad_upload
+        renderizar_cad_upload(usuario)
     elif pagina == "admin_usuarios":
         from src.telas.admin_usuarios import renderizar_usuarios
         renderizar_usuarios(usuario)

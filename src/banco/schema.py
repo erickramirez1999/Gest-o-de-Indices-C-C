@@ -175,6 +175,8 @@ CREATE TABLE IF NOT EXISTS fornecedor_financeiro (
     cnpj TEXT NOT NULL UNIQUE,
     nome TEXT NOT NULL,
     categoria TEXT,                  -- ex: SOFTWARE, PROTESTO, CONTABIL
+    area_negocio TEXT,               -- macro: COBRANÇA, NEGATIVAÇÃO, CRÉDITO, INFRAESTRUTURA
+    subcategoria TEXT,               -- ex: Terceirizada de Cobrança, Software de Cobrança
     descricao_servico_padrao TEXT,   -- preenchida da 1ª NF como sugestão
     municipio TEXT,
     uf TEXT,
@@ -185,6 +187,7 @@ CREATE TABLE IF NOT EXISTS fornecedor_financeiro (
 
 CREATE INDEX IF NOT EXISTS idx_forn_cnpj ON fornecedor_financeiro(cnpj);
 CREATE INDEX IF NOT EXISTS idx_forn_categoria ON fornecedor_financeiro(categoria);
+CREATE INDEX IF NOT EXISTS idx_forn_area ON fornecedor_financeiro(area_negocio);
 
 -- LANÇAMENTO DE GASTO (1 linha por NF processada)
 CREATE TABLE IF NOT EXISTS dados_financeiro_gasto (
@@ -195,6 +198,8 @@ CREATE TABLE IF NOT EXISTS dados_financeiro_gasto (
     cnpj_fornecedor TEXT NOT NULL,                        -- redundante p/ histórico
     nome_fornecedor TEXT NOT NULL,                        -- snapshot
     categoria TEXT,                                       -- snapshot da categoria
+    area_negocio TEXT,                                    -- snapshot macro área
+    subcategoria TEXT,                                    -- snapshot subcategoria
     cnpj_pagador TEXT,                                    -- CNPJ tomador (qual LLE)
     empresa_lle TEXT,                                     -- PISA / KING / TRIO / OUTRO
     numero_nf TEXT,                                       -- identificador NF
@@ -211,4 +216,5 @@ CREATE INDEX IF NOT EXISTS idx_fin_gasto_mes ON dados_financeiro_gasto(mes_ano);
 CREATE INDEX IF NOT EXISTS idx_fin_gasto_forn ON dados_financeiro_gasto(fornecedor_id);
 CREATE INDEX IF NOT EXISTS idx_fin_gasto_cat ON dados_financeiro_gasto(categoria);
 CREATE INDEX IF NOT EXISTS idx_fin_gasto_emp ON dados_financeiro_gasto(empresa_lle);
+CREATE INDEX IF NOT EXISTS idx_fin_gasto_area ON dados_financeiro_gasto(area_negocio);
 """

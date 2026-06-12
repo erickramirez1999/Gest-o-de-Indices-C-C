@@ -256,6 +256,23 @@ def renderizar_fin_upload(usuario):
                     criado_por_id=usuario.id,
                 )
 
+                # Se o fornecedor já existe e tem classificação, usa ela
+                # Senão, tenta sugerir automaticamente
+                area = forn.get("area_negocio")
+                subcat = forn.get("subcategoria")
+                if not area:
+                    area, subcat = repo_financeiro.sugerir_area_e_subcategoria(
+                        nf.nome_prestador, nf.descricao_servico,
+                    )
+                    if area:
+                        # Salva a classificação no cadastro do fornecedor pra próximas
+                        try:
+                            repo_financeiro.atualizar_area_fornecedor(
+                                forn["id"], area, subcat, propagar=False,
+                            )
+                        except Exception:
+                            pass
+
                 # Cria lançamento
                 repo_financeiro.criar_gasto(
                     mes_ano=mes_ano,
@@ -263,6 +280,8 @@ def renderizar_fin_upload(usuario):
                     cnpj_fornecedor=nf.cnpj_prestador,
                     nome_fornecedor=nf.nome_prestador,
                     categoria=forn.get("categoria"),
+                    area_negocio=area,
+                    subcategoria=subcat,
                     cnpj_pagador=nf.cnpj_tomador,
                     empresa_lle=nf.empresa_lle,
                     numero_nf=nf.numero_nf,

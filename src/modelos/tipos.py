@@ -5,17 +5,20 @@ PERMISSOES = {
     "GESTOR_COBRANCA": [
         "inicio", "meu_perfil", "upload",
         "cob_acordo", "cob_cobranca", "cob_performance", "cob_geral",
+        "cad_dashboard", "cad_upload",
         "admin_usuarios",  # só vê aba Relatórios (Cobrança) + Auditoria
     ],
     "GESTOR_CREDITO": [
         "inicio", "meu_perfil", "upload",
         "cred_indicadores", "cred_reanalises", "cred_geral",
+        "cad_dashboard", "cad_upload",
         "admin_usuarios",  # só vê aba Relatórios (Crédito) + Auditoria
     ],
     "GESTOR_FINANCEIRO": [
         "inicio", "meu_perfil",
         "fin_upload", "fin_manual", "fin_gastos_mes", "fin_comparativos",
         "fin_fornecedores", "fin_reparo",
+        "cad_dashboard", "cad_upload",
         "admin_usuarios",  # só Relatórios (Financeiro) + Auditoria
     ],
     "DIRETORIA": [
@@ -23,6 +26,7 @@ PERMISSOES = {
         "cob_acordo", "cob_cobranca", "cob_performance", "cob_geral",
         "cred_indicadores", "cred_reanalises", "cred_geral",
         "fin_gastos_mes", "fin_comparativos",
+        "cad_dashboard",
     ],
 }
 

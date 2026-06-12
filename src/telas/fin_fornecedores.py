@@ -247,20 +247,51 @@ def renderizar_fin_fornecedores(usuario):
     with col_uf:
         novo_uf = st.text_input("UF", value=forn.get("uf") or "", max_chars=2, key=f"eu_{forn['id']}").upper()
 
+    # ─── Área de negócio + subcategoria ─────
+    st.markdown("##### 🎯 Classificação por área de negócio")
+    areas = ["(não classificado)"] + repo_financeiro.listar_areas_negocio()
+    area_at = forn.get("area_negocio") or "(não classificado)"
+    try:
+        idx_a = areas.index(area_at)
+    except ValueError:
+        idx_a = 0
+
+    col_a, col_s = st.columns(2)
+    with col_a:
+        nova_area = st.selectbox("Área", areas, index=idx_a, key=f"earea_{forn['id']}")
+    with col_s:
+        if nova_area == "(não classificado)":
+            nova_subcat = None
+            st.selectbox("Subcategoria", ["—"], disabled=True, key=f"esub_{forn['id']}")
+        else:
+            subs = repo_financeiro.listar_subcategorias(nova_area)
+            sub_at = forn.get("subcategoria")
+            try:
+                idx_s = subs.index(sub_at) if sub_at else 0
+            except ValueError:
+                idx_s = 0
+            nova_subcat = st.selectbox("Subcategoria", subs, index=idx_s, key=f"esub_{forn['id']}")
+
+    nova_area_real = None if nova_area == "(não classificado)" else nova_area
+
     novo_ativo = st.checkbox("Ativo", value=forn.get("ativo", True), key=f"ea_{forn['id']}")
 
     mudou_n = novo_nome != forn["nome"]
     mudou_c = nova_cat != (forn.get("categoria") or "OUTROS")
-    prop_n = prop_c = False
-    if qtd > 0 and (mudou_n or mudou_c):
+    mudou_a = nova_area_real != forn.get("area_negocio") or nova_subcat != forn.get("subcategoria")
+    prop_n = prop_c = prop_a = False
+    if qtd > 0 and (mudou_n or mudou_c or mudou_a):
         st.markdown("##### Propagar mudanças?")
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         if mudou_n:
             with c1:
-                prop_n = st.checkbox(f"📝 Atualizar nome em {qtd} lanç.", value=True, key=f"pn_{forn['id']}")
+                prop_n = st.checkbox(f"📝 Nome em {qtd} lanç.", value=True, key=f"pn_{forn['id']}")
         if mudou_c:
             with c2:
-                prop_c = st.checkbox(f"🏷️ Atualizar categoria em {qtd} lanç.", value=True, key=f"pc_{forn['id']}")
+                prop_c = st.checkbox(f"🏷️ Categoria em {qtd} lanç.", value=True, key=f"pc_{forn['id']}")
+        if mudou_a:
+            with c3:
+                prop_a = st.checkbox(f"🎯 Área em {qtd} lanç.", value=True, key=f"pa_{forn['id']}")
 
     if not novo_nome or len(novo_nome) < 3:
         st.warning("Nome obrigatório (mín. 3)")
@@ -276,6 +307,11 @@ def renderizar_fin_fornecedores(usuario):
             if prop_c:
                 n = _propagar_categoria(forn["id"], nova_cat)
                 partes.append(f"- Categoria em {n} lanç.")
+            if mudou_a:
+                n = repo_financeiro.atualizar_area_fornecedor(
+                    forn["id"], nova_area_real, nova_subcat, propagar=prop_a,
+                )
+                partes.append(f"- Área classificada" + (f" e propagada em {n} lanç." if prop_a else ""))
             st.session_state["fin_forn_msg"] = {"tipo": "sucesso", "texto": "\n".join(partes)}
             st.rerun()
         except Exception as e:

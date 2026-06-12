@@ -224,6 +224,156 @@ def renderizar_fin_comparativos(usuario):
 
     st.markdown("---")
 
+    # ═════════════════════════════════════════════════════════════
+    # 🎯 VISÃO EXECUTIVA POR ÁREA DE NEGÓCIO
+    # ═════════════════════════════════════════════════════════════
+    st.markdown(f"### 🎯 Visão Executiva — pra onde está indo o dinheiro?")
+    st.caption(
+        "Gastos agrupados pelas **áreas de negócio da LLE**. "
+        "Pra reclassificar fornecedores, vá em **🏢 Fornecedores**."
+    )
+
+    from src.banco.repo_financeiro import AREAS_NEGOCIO
+
+    # Trata área não classificada
+    df_ano_area = df_ano.copy()
+    df_ano_area["area_negocio"] = df_ano_area["area_negocio"].fillna("⚠️ NÃO CLASSIFICADO")
+
+    # Total por área
+    por_area = (df_ano_area.groupby("area_negocio")["valor"]
+                .sum().sort_values(ascending=False))
+
+    if por_area.empty:
+        st.info("Sem dados pra classificar.")
+    else:
+        # Cards macro (4 colunas)
+        st.markdown("##### 📊 Distribuição por Área")
+        cols_cards = st.columns(min(len(por_area), 5))
+        for idx, (area, val) in enumerate(por_area.items()):
+            with cols_cards[idx % len(cols_cards)]:
+                cor = AREAS_NEGOCIO.get(area, {}).get("cor", "#616161")
+                emoji = AREAS_NEGOCIO.get(area, {}).get("emoji", "❓")
+                pct = (val / total_ano * 100) if total_ano else 0
+                st.markdown(
+                    f"""<div style='background:{cor}; color:white; padding:14px;
+                    border-radius:8px; margin-bottom:10px; text-align:center;'>
+                    <div style='font-size:28px;'>{emoji}</div>
+                    <div style='font-size:13px; font-weight:600; margin:4px 0;'>{area}</div>
+                    <div style='font-size:18px; font-weight:700;'>{formatar_brl(val)}</div>
+                    <div style='font-size:12px; opacity:0.9;'>{pct:.1f}% do total</div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+
+        # 2 gráficos lado a lado: pizza por área + barras horizontais
+        col_p, col_b = st.columns([1, 1])
+
+        with col_p:
+            st.markdown("##### 🥧 Proporção por Área")
+            cores_area = [AREAS_NEGOCIO.get(a, {}).get("cor", "#616161") for a in por_area.index]
+            fig_pie = px.pie(
+                names=por_area.index,
+                values=por_area.values,
+                color=por_area.index,
+                color_discrete_map={a: AREAS_NEGOCIO.get(a, {}).get("cor", "#616161") for a in por_area.index},
+                hole=0.4,
+            )
+            fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+            fig_pie.update_layout(height=350, margin=dict(t=10, b=10), showlegend=False)
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+        with col_b:
+            st.markdown("##### 📊 Total por Área")
+            df_bar = por_area.reset_index()
+            df_bar.columns = ["Área", "Valor"]
+            fig_bar = px.bar(
+                df_bar, x="Valor", y="Área", orientation="h",
+                color="Área",
+                color_discrete_map={a: AREAS_NEGOCIO.get(a, {}).get("cor", "#616161") for a in por_area.index},
+                text_auto=".2s",
+                labels={"Valor": "R$", "Área": ""},
+            )
+            fig_bar.update_layout(
+                height=350, margin=dict(t=10, b=10), showlegend=False,
+                yaxis={"categoryorder": "total ascending"},
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+        # Evolução mensal por área (linhas)
+        st.markdown("##### 📈 Evolução mensal por Área")
+        df_evol = (df_ano_area.groupby(["mes_ano", "area_negocio"])["valor"]
+                   .sum().reset_index())
+        df_evol["mes_label"] = df_evol["mes_ano"].apply(
+            lambda m: f"{nome_mes(m)[:3]}/{m[2:4]}"
+        )
+        fig_evol = px.line(
+            df_evol.sort_values("mes_ano"),
+            x="mes_label", y="valor", color="area_negocio",
+            color_discrete_map={a: AREAS_NEGOCIO.get(a, {}).get("cor", "#616161") for a in por_area.index},
+            markers=True,
+            labels={"valor": "R$", "mes_label": "Mês", "area_negocio": "Área"},
+        )
+        fig_evol.update_layout(height=350, margin=dict(t=10, b=10))
+        st.plotly_chart(fig_evol, use_container_width=True)
+
+        # Drill-down: detalhamento por subcategoria
+        st.markdown("##### 🔍 Detalhar uma área")
+        area_escolhida = st.selectbox(
+            "Escolha a área pra ver os fornecedores e subcategorias",
+            por_area.index.tolist(),
+            key="fin_visao_drill",
+        )
+
+        df_area = df_ano_area[df_ano_area["area_negocio"] == area_escolhida]
+        df_area["subcategoria"] = df_area["subcategoria"].fillna("(sem subcategoria)")
+
+        # Por subcategoria
+        col_s, col_f = st.columns([1, 1])
+        with col_s:
+            st.markdown(f"**Por Subcategoria** ({area_escolhida})")
+            por_sub = df_area.groupby("subcategoria")["valor"].sum().sort_values(ascending=False)
+            rows_sub = []
+            for sub, val in por_sub.items():
+                rows_sub.append({
+                    "Subcategoria": sub,
+                    "Total": formatar_brl(val),
+                    "%": f"{val / por_sub.sum() * 100:.1f}%",
+                })
+            st.dataframe(pd.DataFrame(rows_sub), use_container_width=True, hide_index=True)
+
+        with col_f:
+            st.markdown(f"**Por Fornecedor** ({area_escolhida})")
+            por_forn_area = df_area.groupby("nome_fornecedor")["valor"].sum().sort_values(ascending=False)
+            rows_fa = []
+            for nome, val in por_forn_area.items():
+                rows_fa.append({
+                    "Fornecedor": nome,
+                    "Total": formatar_brl(val),
+                    "%": f"{val / por_forn_area.sum() * 100:.1f}%",
+                })
+            st.dataframe(pd.DataFrame(rows_fa), use_container_width=True, hide_index=True)
+
+        # Alerta se tem fornecedor não classificado
+        nao_class = df_ano_area[df_ano_area["area_negocio"] == "⚠️ NÃO CLASSIFICADO"]
+        if not nao_class.empty:
+            forn_nao_class = nao_class.groupby(["nome_fornecedor", "cnpj_fornecedor"])["valor"].sum()
+            total_nc = nao_class["valor"].sum()
+            with st.expander(
+                f"⚠️ **{len(forn_nao_class)} fornecedor(es) sem classificação** ({formatar_brl(total_nc)}) — clique pra ver",
+                expanded=False,
+            ):
+                st.caption("Vá em **🏢 Fornecedores** pra classificar esses fornecedores em uma área.")
+                rows_nc = []
+                for (nome, cnpj), val in forn_nao_class.items():
+                    rows_nc.append({
+                        "Fornecedor": nome,
+                        "CNPJ": cnpj,
+                        "Total": formatar_brl(val),
+                    })
+                st.dataframe(pd.DataFrame(rows_nc), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
     # ─── Por Fornecedor (Top 15) — agrupa por CNPJ pra evitar duplicações ─────
     st.markdown(f"### 🏢 Top Fornecedores — {ano_foco}")
 
@@ -235,14 +385,21 @@ def renderizar_fin_comparativos(usuario):
                       .groupby("cnpj_fornecedor")["nome_fornecedor"]
                       .first().to_dict())
 
+    # Pra cada CNPJ, pega também a área (snapshot do primeiro lançamento)
+    areas_por_cnpj = (df_ano_area.groupby("cnpj_fornecedor")["area_negocio"]
+                      .first().to_dict())
+
     por_forn = (df_ano.groupby("cnpj_fornecedor")["valor"]
                 .sum().sort_values(ascending=False).head(15))
 
     rows = []
     for cnpj, val in por_forn.items():
+        area = areas_por_cnpj.get(cnpj, "—")
+        emoji = AREAS_NEGOCIO.get(area, {}).get("emoji", "❓") if area in AREAS_NEGOCIO else ""
         rows.append({
             "Fornecedor": nomes_por_cnpj.get(cnpj, "—"),
             "CNPJ": cnpj or "—",
+            "Área": f"{emoji} {area}" if emoji else area,
             "Total": formatar_brl(val),
             "%": f"{val / total_ano * 100:.1f}%" if total_ano else "0%",
         })

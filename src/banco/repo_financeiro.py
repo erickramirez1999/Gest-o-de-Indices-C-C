@@ -16,6 +16,86 @@ from src.banco.conexao import obter_conexao
 
 
 # ============================================================
+# ÁREAS DE NEGÓCIO E SUBCATEGORIAS (taxonomia LLE)
+# ============================================================
+
+AREAS_NEGOCIO = {
+    "COBRANÇA": {
+        "cor": "#D32F2F",  # vermelho
+        "emoji": "📞",
+        "subcategorias": [
+            "Terceirizada de Cobrança",
+            "Software de Cobrança",
+        ],
+    },
+    "NEGATIVAÇÃO": {
+        "cor": "#F57C00",  # laranja
+        "emoji": "⚠️",
+        "subcategorias": [
+            "Serasa / Negativação",
+            "Cartório / IEPTB",
+        ],
+    },
+    "CRÉDITO": {
+        "cor": "#388E3C",  # verde
+        "emoji": "💳",
+        "subcategorias": [
+            "Software de Crédito e Cadastro",
+            "Análise de Crédito",
+        ],
+    },
+    "INFRAESTRUTURA": {
+        "cor": "#1976D2",  # azul
+        "emoji": "🛠️",
+        "subcategorias": [
+            "Telefonia / Software de Ligação",
+            "Licença TEF / Meios de Pagamento",
+            "Hospedagem / Cloud",
+            "Software Geral",
+        ],
+    },
+    "ADMINISTRATIVO": {
+        "cor": "#7B1FA2",  # roxo
+        "emoji": "📋",
+        "subcategorias": [
+            "Contábil",
+            "Jurídico",
+            "Consultoria",
+            "Aluguel / Condomínio",
+            "Energia / Água",
+            "Material de Escritório",
+            "Outros",
+        ],
+    },
+    "OUTROS": {
+        "cor": "#616161",  # cinza
+        "emoji": "❓",
+        "subcategorias": ["Não classificado"],
+    },
+}
+
+
+def listar_areas_negocio() -> list:
+    return list(AREAS_NEGOCIO.keys())
+
+
+def listar_subcategorias(area: str) -> list:
+    return AREAS_NEGOCIO.get(area, {}).get("subcategorias", [])
+
+
+def cor_da_area(area: Optional[str]) -> str:
+    if not area or area not in AREAS_NEGOCIO:
+        return "#616161"
+    return AREAS_NEGOCIO[area]["cor"]
+
+
+def emoji_da_area(area: Optional[str]) -> str:
+    if not area or area not in AREAS_NEGOCIO:
+        return "❓"
+    return AREAS_NEGOCIO[area]["emoji"]
+
+
+# ============================================================
 # CATEGORIAS PADRÃO (sugeridas a partir da descrição da NF)
 # ============================================================
 
@@ -41,6 +121,67 @@ _HEURISTICAS_CATEGORIA = [
     ("MATERIAL", ["MATERIAL DE", "PAPELARIA", "SUPRIMENTOS"]),
     ("BANCO", ["TARIFA", "BANCÁRIA", "BANCARIA"]),
 ]
+
+
+def sugerir_area_e_subcategoria(nome_fornecedor: Optional[str], descricao: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+    """Sugere área + subcategoria com base em palavras-chave conhecidas."""
+    base = " ".join(filter(None, [nome_fornecedor, descricao])).upper()
+    if not base.strip():
+        return None, None
+
+    # Terceirizadas de Cobrança (lista de empresas conhecidas)
+    if any(p in base for p in ["RENNOVARE", "KNOWHOW", "KNOW HOW", "SOLUTE"]):
+        return "COBRANÇA", "Terceirizada de Cobrança"
+
+    # Software de Cobrança
+    if "CUBO" in base:
+        return "COBRANÇA", "Software de Cobrança"
+
+    # Serasa/ClearSale
+    if any(p in base for p in ["SERASA", "CLEARSALE", "CLEAR SALE"]):
+        return "NEGATIVAÇÃO", "Serasa / Negativação"
+
+    # IEPTB / Instituto de Protesto
+    if "INSTITUTO" in base and "PROTESTO" in base:
+        return "NEGATIVAÇÃO", "Cartório / IEPTB"
+    if "IEPTB" in base:
+        return "NEGATIVAÇÃO", "Cartório / IEPTB"
+
+    # CadoPay / CADO
+    if "CADO" in base:
+        return "CRÉDITO", "Software de Crédito e Cadastro"
+
+    # Nines (software de ligação)
+    if "NINES" in base:
+        return "INFRAESTRUTURA", "Telefonia / Software de Ligação"
+
+    # PayGo (TEF)
+    if "PAYGO" in base or "PAY GO" in base:
+        return "INFRAESTRUTURA", "Licença TEF / Meios de Pagamento"
+
+    # Heurísticas genéricas pela descrição
+    if any(p in base for p in ["PROTESTO", "NEGATIV"]):
+        return "NEGATIVAÇÃO", "Cartório / IEPTB"
+    if any(p in base for p in ["COBRANÇA", "COBRANCA", "RECUPERAÇÃO DE CRÉDITO", "RECUPERACAO DE CREDITO"]):
+        return "COBRANÇA", "Terceirizada de Cobrança"
+    if any(p in base for p in ["HOSPEDAGEM", "CLOUD"]):
+        return "INFRAESTRUTURA", "Hospedagem / Cloud"
+    if any(p in base for p in ["TELEFON", "INTERNET", "TELECOM"]):
+        return "INFRAESTRUTURA", "Telefonia / Software de Ligação"
+    if any(p in base for p in ["SOFTWARE", "SISTEMA", "TECNOLOGIA", "LICENCIAMENTO"]):
+        return "INFRAESTRUTURA", "Software Geral"
+    if any(p in base for p in ["CONTÁBIL", "CONTABIL"]):
+        return "ADMINISTRATIVO", "Contábil"
+    if any(p in base for p in ["JURÍDICO", "JURIDICO", "ADVOG"]):
+        return "ADMINISTRATIVO", "Jurídico"
+    if "CONSULTORIA" in base or "ASSESSORIA" in base:
+        return "ADMINISTRATIVO", "Consultoria"
+    if any(p in base for p in ["ALUGUEL", "LOCAÇÃO", "LOCACAO"]):
+        return "ADMINISTRATIVO", "Aluguel / Condomínio"
+    if any(p in base for p in ["ENERGIA", "LIGHT", "ENEL"]):
+        return "ADMINISTRATIVO", "Energia / Água"
+
+    return None, None
 
 
 def sugerir_categoria(descricao_servico: Optional[str], nome_fornecedor: Optional[str] = None) -> Optional[str]:
@@ -174,6 +315,8 @@ def criar_gasto(
     nome_arquivo_pdf: Optional[str],
     criado_por_id: Optional[int],
     upload_id: Optional[int] = None,
+    area_negocio: Optional[str] = None,
+    subcategoria: Optional[str] = None,
 ) -> dict:
     """Cria um lançamento de gasto. Não checa duplicidade aqui."""
     sb = obter_conexao()
@@ -184,6 +327,8 @@ def criar_gasto(
         "cnpj_fornecedor": cnpj_fornecedor,
         "nome_fornecedor": nome_fornecedor,
         "categoria": categoria,
+        "area_negocio": area_negocio,
+        "subcategoria": subcategoria,
         "cnpj_pagador": cnpj_pagador,
         "empresa_lle": empresa_lle,
         "numero_nf": numero_nf,
@@ -246,3 +391,38 @@ def meses_com_gasto() -> list[str]:
     res = sb.table("dados_financeiro_gasto").select("mes_ano").execute()
     meses = sorted({r["mes_ano"] for r in res.data if r.get("mes_ano")}, reverse=True)
     return meses
+
+
+# ============================================================
+# CLASSIFICAÇÃO POR ÁREA/SUBCATEGORIA
+# ============================================================
+
+def atualizar_area_fornecedor(
+    fornecedor_id: int,
+    area: Optional[str],
+    subcategoria: Optional[str],
+    propagar: bool = True,
+) -> int:
+    """
+    Atualiza a área/subcategoria do fornecedor.
+    Se propagar=True, também atualiza nos lançamentos existentes.
+    Retorna o nº de lançamentos atualizados.
+    """
+    sb = obter_conexao()
+    sb.table("fornecedor_financeiro").update({
+        "area_negocio": area,
+        "subcategoria": subcategoria,
+    }).eq("id", fornecedor_id).execute()
+
+    if propagar:
+        res = (sb.table("dados_financeiro_gasto")
+               .update({"area_negocio": area, "subcategoria": subcategoria})
+               .eq("fornecedor_id", fornecedor_id)
+               .execute())
+        return len(res.data) if res.data else 0
+    return 0
+
+
+def fornecedor_com_classificacao(cnpj: str) -> Optional[dict]:
+    """Igual a buscar_fornecedor_por_cnpj, mas explicita propósito."""
+    return buscar_fornecedor_por_cnpj(cnpj)
