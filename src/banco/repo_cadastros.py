@@ -62,53 +62,99 @@ def upsert_cadastros_em_lote(
 
     sb = obter_conexao()
 
-    # Lista códigos de parceiros já existentes
-    cods = list({r["cod_parceiro"] for r in registros if r.get("cod_parceiro")})
-    existentes_res = (sb.table("dados_cadastros")
-                      .select("cod_parceiro")
-                      .in_("cod_parceiro", cods)
-                      .execute())
-    existentes_set = {r["cod_parceiro"] for r in (existentes_res.data or [])}
+    # Lista códigos de parceiros já existentes (em lotes pra evitar URL muito grande)
+    cods = list({int(r["cod_parceiro"]) for r in registros if r.get("cod_parceiro")})
+    existentes_set = set()
+    for i in range(0, len(cods), 500):
+        chunk = cods[i:i + 500]
+        try:
+            res = (sb.table("dados_cadastros")
+                   .select("cod_parceiro")
+                   .in_("cod_parceiro", chunk)
+                   .execute())
+            existentes_set.update(r["cod_parceiro"] for r in (res.data or []))
+        except Exception:
+            pass
 
     criados = 0
     atualizados = 0
     ignorados = 0
+    erros_detalhe = []
 
-    # Processa em lotes de 500 (Supabase tem limites)
+    # Sanitiza e monta payload
+    def _sanitizar_texto(s):
+        """Remove caracteres que quebram JSON: NUL, controle, etc."""
+        if s is None or (isinstance(s, float) and pd.isna(s)):
+            return None
+        s = str(s)
+        # Remove NUL e caracteres de controle exceto \n, \r, \t
+        s = "".join(c for c in s if c == "\n" or c == "\r" or c == "\t" or ord(c) >= 32)
+        return s.strip() or None
+
     lote = []
     for r in registros:
         if not r.get("cod_parceiro") or not r.get("data_cadastramento"):
             ignorados += 1
             continue
 
+        # Trata data
+        data = r["data_cadastramento"]
+        if hasattr(data, "date"):
+            data_iso = data.date().isoformat()
+        elif hasattr(data, "isoformat"):
+            data_iso = data.isoformat()
+        else:
+            data_iso = str(data)
+
+        # Trata canal — vira None se for NaN/vazio
+        canal_raw = r.get("canal_origem")
+        if canal_raw is None or (isinstance(canal_raw, float) and pd.isna(canal_raw)):
+            canal = None
+        else:
+            canal = _sanitizar_texto(canal_raw)
+
+        nome = _sanitizar_texto(r.get("nome_parceiro")) or "(sem nome)"
+
         payload = {
             "cod_parceiro": int(r["cod_parceiro"]),
-            "nome_parceiro": str(r["nome_parceiro"] or "").strip(),
-            "canal_origem": (str(r["canal_origem"]).strip()
-                             if r.get("canal_origem") and pd.notna(r["canal_origem"])
-                             else None),
-            "data_cadastramento": (r["data_cadastramento"].isoformat()
-                                   if hasattr(r["data_cadastramento"], "isoformat")
-                                   else str(r["data_cadastramento"])),
-            "nome_arquivo_origem": nome_arquivo_origem,
-            "criado_por_id": criado_por_id,
+            "nome_parceiro": nome[:500],   # limita a 500 chars por garantia
+            "canal_origem": canal,
+            "data_cadastramento": data_iso,
+            "nome_arquivo_origem": _sanitizar_texto(nome_arquivo_origem),
+            "criado_por_id": int(criado_por_id) if criado_por_id else None,
         }
         lote.append(payload)
 
-        if r["cod_parceiro"] in existentes_set:
+        if int(r["cod_parceiro"]) in existentes_set:
             atualizados += 1
         else:
             criados += 1
 
+    # Upsert em LOTES PEQUENOS (200 por vez) pra evitar erro de payload grande
     if lote:
-        # Upsert por cod_parceiro
-        sb.table("dados_cadastros").upsert(lote, on_conflict="cod_parceiro").execute()
+        TAMANHO_LOTE = 200
+        for i in range(0, len(lote), TAMANHO_LOTE):
+            chunk = lote[i:i + TAMANHO_LOTE]
+            try:
+                sb.table("dados_cadastros").upsert(chunk, on_conflict="cod_parceiro").execute()
+            except Exception as e:
+                # Tenta um por um pra identificar a linha problemática
+                for item in chunk:
+                    try:
+                        sb.table("dados_cadastros").upsert([item], on_conflict="cod_parceiro").execute()
+                    except Exception as e2:
+                        erros_detalhe.append({
+                            "cod_parceiro": item["cod_parceiro"],
+                            "nome": item["nome_parceiro"][:50],
+                            "erro": str(e2)[:200],
+                        })
 
     return {
         "criados": criados,
         "atualizados": atualizados,
         "ignorados": ignorados,
         "total": len(registros),
+        "erros": erros_detalhe,
     }
 
 

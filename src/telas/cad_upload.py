@@ -41,6 +41,11 @@ def renderizar_cad_upload(usuario):
         else:
             st.error(msg["texto"])
 
+    erros = st.session_state.pop("cad_upload_erros", None)
+    if erros:
+        with st.expander(f"⚠️ Ver {len(erros)} linha(s) que falharam", expanded=False):
+            st.dataframe(pd.DataFrame(erros), use_container_width=True, hide_index=True)
+
     arquivo = st.file_uploader(
         "Selecione a planilha (.xlsx)",
         type=["xlsx", "xls"],
@@ -150,15 +155,25 @@ def renderizar_cad_upload(usuario):
             )
 
             st.session_state["cad_hash_processado"] = hash_arq
+
+            # Se teve erros isolados, mostra em expander
+            qtd_erros = len(res.get("erros", []))
+            erros_txt = ""
+            if qtd_erros > 0:
+                erros_txt = f"\n- ⚠️ Erros em **{qtd_erros}** linhas (clique no expander abaixo)"
+
             st.session_state["cad_upload_msg"] = {
-                "tipo": "sucesso",
+                "tipo": "sucesso" if qtd_erros == 0 else "aviso",
                 "texto": (
                     f"✅ **{res['total']}** registros processados:\n"
                     f"- 🆕 Criados: **{res['criados']}**\n"
                     f"- 🔄 Atualizados: **{res['atualizados']}**\n"
-                    f"- ⏭️ Ignorados (sem dados): {res['ignorados']}"
+                    f"- ⏭️ Ignorados (sem dados): {res['ignorados']}{erros_txt}"
                 ),
             }
+            if qtd_erros > 0:
+                st.session_state["cad_upload_erros"] = res["erros"]
+
             st.toast("✅ Cadastros gravados!", icon="✅")
             st.rerun()
         except Exception as e:
