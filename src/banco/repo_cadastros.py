@@ -131,12 +131,15 @@ def upsert_cadastros_em_lote(
         else:
             criados += 1
 
-    # Upsert em LOTES PEQUENOS (100 por vez) — Supabase aceita melhor
+    # Upsert em LOTES PEQUENOS (100 por vez)
+    # NÃO faz fallback 1-a-1: se um lote falhar, tenta o próximo.
+    # No fim, conta no banco quantos realmente entraram pra ter números corretos.
     if lote:
         TAMANHO_LOTE = 100
         total_lotes = (len(lote) + TAMANHO_LOTE - 1) // TAMANHO_LOTE
         lotes_falhados_seguidos = 0
         primeiro_erro_lote = None
+        lotes_falhos = 0
 
         for idx_lote, i in enumerate(range(0, len(lote), TAMANHO_LOTE)):
             chunk = lote[i:i + TAMANHO_LOTE]
@@ -149,30 +152,47 @@ def upsert_cadastros_em_lote(
                 lotes_falhados_seguidos = 0
             except Exception as e:
                 lotes_falhados_seguidos += 1
+                lotes_falhos += 1
                 if primeiro_erro_lote is None:
                     primeiro_erro_lote = str(e)[:500]
+                    # Guarda info do primeiro lote falho pra diagnóstico
+                    erros_detalhe.append({
+                        "cod_parceiro": f"Lote {idx_lote+1} ({chunk[0]['cod_parceiro']}..{chunk[-1]['cod_parceiro']})",
+                        "nome": f"{len(chunk)} linhas",
+                        "erro": str(e)[:300],
+                    })
 
-                # Se 3 lotes seguidos falharem, é erro sistêmico — para aqui
+                # Se 3 lotes seguidos falharem, é erro sistêmico — para
                 if lotes_falhados_seguidos >= 3:
                     erros_detalhe.append({
-                        "cod_parceiro": "(múltiplos)",
-                        "nome": f"PARADO após {lotes_falhados_seguidos} lotes consecutivos falhando",
+                        "cod_parceiro": "PARADO",
+                        "nome": f"3 lotes seguidos falharam, abortando",
                         "erro": primeiro_erro_lote,
                     })
                     break
 
-                # Tenta linha por linha SÓ no primeiro lote falho (pra identificar problema)
-                if lotes_falhados_seguidos == 1:
-                    for item in chunk:
-                        try:
-                            sb.table("dados_cadastros").upsert([item], on_conflict="cod_parceiro").execute()
-                        except Exception as e2:
-                            erros_detalhe.append({
-                                "cod_parceiro": item["cod_parceiro"],
-                                "nome": item["nome_parceiro"][:50],
-                                "erro": str(e2)[:200],
-                            })
+        # Conta REAL no banco pra ter números precisos
+        try:
+            total_no_banco = sb.table("dados_cadastros").select("id", count="exact").execute()
+            qtd_real = total_no_banco.count or 0
+        except Exception:
+            qtd_real = -1
 
+        # Recalcula criados/atualizados com base no que está no banco vs o que existia antes
+        criados_real = qtd_real - len(existentes_set) if qtd_real >= 0 else criados
+        atualizados_real = max(0, (len(lote) - lotes_falhos * TAMANHO_LOTE) - criados_real)
+
+        return {
+            "criados": max(0, criados_real),
+            "atualizados": max(0, atualizados_real),
+            "ignorados": ignorados,
+            "total": len(registros),
+            "erros": erros_detalhe,
+            "lotes_falhos": lotes_falhos,
+            "total_no_banco": qtd_real,
+        }
+
+    # Sem nenhum lote pra processar
     return {
         "criados": criados,
         "atualizados": atualizados,
