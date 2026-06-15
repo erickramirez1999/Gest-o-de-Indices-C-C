@@ -21,11 +21,11 @@ from src.banco.conexao import obter_conexao
 # ============================================================
 
 CANAIS_ORIGEM = {
-    "KING OURO":       {"cor": "#FAC318", "emoji": "👑"},
-    "LLE":             {"cor": "#041747", "emoji": "🏢"},
-    "LLE CONSTRUTORA": {"cor": "#0F8C3B", "emoji": "🏗️"},
-    "TRIO":            {"cor": "#7B1FA2", "emoji": "🔺"},
-    "(sem canal)":     {"cor": "#9E9E9E", "emoji": "❓"},
+    "KING OURO":       {"cor": "#FAC318", "emoji": "👑"},  # amarelo KING
+    "LLE":             {"cor": "#041747", "emoji": "🏢"},  # azul LLE/PISA
+    "LLE CONSTRUTORA": {"cor": "#1976D2", "emoji": "🏗️"},  # azul claro (variação LLE)
+    "TRIO":            {"cor": "#0F8C3B", "emoji": "🔺"},  # verde TRIO
+    "(sem canal)":     {"cor": "#9E9E9E", "emoji": "❓"},  # cinza
 }
 
 
@@ -62,6 +62,17 @@ def upsert_cadastros_em_lote(
         return {"criados": 0, "atualizados": 0, "ignorados": 0, "total": 0, "erros": []}
 
     sb = obter_conexao()
+
+    # Valida criado_por_id contra a tabela usuario.
+    # Se o ID não existir, manda NULL pra evitar violação de FK silenciosa.
+    criado_por_id_validado = None
+    if criado_por_id is not None:
+        try:
+            res_user = sb.table("usuario").select("id").eq("id", int(criado_por_id)).limit(1).execute()
+            if res_user.data:
+                criado_por_id_validado = int(criado_por_id)
+        except Exception:
+            pass
 
     # Lista códigos de parceiros já existentes (em lotes pra evitar URL muito grande)
     cods = list({int(r["cod_parceiro"]) for r in registros if r.get("cod_parceiro")})
@@ -122,7 +133,7 @@ def upsert_cadastros_em_lote(
             "canal_origem": canal,
             "data_cadastramento": data_iso,
             "nome_arquivo_origem": _sanitizar_texto(nome_arquivo_origem),
-            "criado_por_id": int(criado_por_id) if criado_por_id else None,
+            "criado_por_id": criado_por_id_validado,
         }
         lote.append(payload)
 
