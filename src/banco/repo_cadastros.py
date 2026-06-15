@@ -141,6 +141,9 @@ def upsert_cadastros_em_lote(
         primeiro_erro_lote = None
         lotes_falhos = 0
 
+        primeiro_response_vazio = None
+        lotes_response_vazio = 0
+
         for idx_lote, i in enumerate(range(0, len(lote), TAMANHO_LOTE)):
             chunk = lote[i:i + TAMANHO_LOTE]
 
@@ -148,7 +151,16 @@ def upsert_cadastros_em_lote(
                 callback_progresso(idx_lote + 1, total_lotes, len(chunk))
 
             try:
-                sb.table("dados_cadastros").upsert(chunk, on_conflict="cod_parceiro").execute()
+                res = sb.table("dados_cadastros").upsert(chunk, on_conflict="cod_parceiro").execute()
+                # Valida: o response deveria ter os dados gravados em res.data
+                if not res.data or len(res.data) == 0:
+                    lotes_response_vazio += 1
+                    if primeiro_response_vazio is None:
+                        primeiro_response_vazio = (
+                            f"Lote {idx_lote+1}: chunk de {len(chunk)} linhas. "
+                            f"res.data = {res.data!r}, "
+                            f"res.count = {getattr(res, 'count', 'N/A')!r}"
+                        )
                 lotes_falhados_seguidos = 0
             except Exception as e:
                 lotes_falhados_seguidos += 1
@@ -173,10 +185,18 @@ def upsert_cadastros_em_lote(
 
         # Conta REAL no banco pra ter números precisos
         try:
-            total_no_banco = sb.table("dados_cadastros").select("id", count="exact").execute()
+            total_no_banco = sb.table("dados_cadastros").select("id", count="exact").limit(1).execute()
             qtd_real = total_no_banco.count or 0
         except Exception:
             qtd_real = -1
+
+        # Se nenhum lote falhou MAS o banco está vazio, é gravação silenciosa
+        if qtd_real == 0 and lotes_falhos == 0 and lotes_response_vazio > 0:
+            erros_detalhe.append({
+                "cod_parceiro": "GRAVAÇÃO SILENCIOSA",
+                "nome": f"{lotes_response_vazio} lotes retornaram response vazio sem erro",
+                "erro": primeiro_response_vazio or "sem detalhes",
+            })
 
         # Recalcula criados/atualizados com base no que está no banco vs o que existia antes
         criados_real = qtd_real - len(existentes_set) if qtd_real >= 0 else criados
@@ -189,6 +209,7 @@ def upsert_cadastros_em_lote(
             "total": len(registros),
             "erros": erros_detalhe,
             "lotes_falhos": lotes_falhos,
+            "lotes_response_vazio": lotes_response_vazio,
             "total_no_banco": qtd_real,
         }
 
@@ -206,13 +227,39 @@ def upsert_cadastros_em_lote(
 # LISTAGEM / DASHBOARD
 # ============================================================
 
-def listar_cadastros() -> list[dict]:
+def contar_cadastros() -> int:
+    """Conta total de cadastros no banco."""
     sb = obter_conexao()
-    res = (sb.table("dados_cadastros")
-           .select("*")
-           .order("data_cadastramento", desc=True)
-           .execute())
-    return res.data or []
+    res = sb.table("dados_cadastros").select("id", count="exact").limit(1).execute()
+    return res.count or 0
+
+
+def listar_cadastros() -> list[dict]:
+    """
+    Lista TODOS os cadastros, paginando (Supabase tem limite de 1000 por query).
+    """
+    sb = obter_conexao()
+    todos = []
+    pagina = 0
+    TAM_PAG = 1000
+    while True:
+        inicio = pagina * TAM_PAG
+        fim = inicio + TAM_PAG - 1
+        res = (sb.table("dados_cadastros")
+               .select("*")
+               .order("data_cadastramento", desc=True)
+               .range(inicio, fim)
+               .execute())
+        chunk = res.data or []
+        if not chunk:
+            break
+        todos.extend(chunk)
+        if len(chunk) < TAM_PAG:
+            break
+        pagina += 1
+        if pagina > 100:  # safety: até 100k linhas
+            break
+    return todos
 
 
 def excluir_cadastros_em_lote(ids: list[int]) -> int:

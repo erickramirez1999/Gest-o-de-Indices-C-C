@@ -173,24 +173,41 @@ def renderizar_cad_upload(usuario):
             st.session_state["cad_hash_processado"] = hash_arq
 
             qtd_erros = len(res.get("erros", []))
-            if qtd_erros == 0:
+            total_banco = res.get("total_no_banco", -1)
+            qtd_silencioso = res.get("lotes_response_vazio", 0)
+
+            if total_banco == 0:
+                st.session_state["cad_upload_msg"] = {
+                    "tipo": "erro",
+                    "texto": (
+                        f"❌ **GRAVAÇÃO FALHOU SILENCIOSAMENTE!**\n"
+                        f"- Tentativas: {res['total']} linhas\n"
+                        f"- Lotes c/ resposta vazia: **{qtd_silencioso}**\n"
+                        f"- Banco está com: **{total_banco}** linhas (deveria ter dados)\n"
+                        f"- Causa provável: RLS, policy de INSERT ausente, ou trigger no banco\n\n"
+                        f"Verifique no Supabase com: `SELECT COUNT(*) FROM dados_cadastros;`"
+                    ),
+                }
+                if qtd_erros > 0:
+                    st.session_state["cad_upload_erros"] = res["erros"]
+            elif qtd_erros == 0:
                 st.session_state["cad_upload_msg"] = {
                     "tipo": "sucesso",
                     "texto": (
-                        f"✅ **{res['total']}** registros gravados com sucesso!\n"
+                        f"✅ **{res['total']}** registros processados!\n"
                         f"- 🆕 Criados: **{res['criados']}**\n"
                         f"- 🔄 Atualizados: **{res['atualizados']}**\n"
-                        f"- ⏭️ Ignorados: {res['ignorados']}"
+                        f"- 📊 Total no banco: **{total_banco:,}**".replace(",", ".")
                     ),
                 }
             else:
                 st.session_state["cad_upload_msg"] = {
                     "tipo": "aviso",
                     "texto": (
-                        f"⚠️ **{qtd_erros}** linha(s) falharam.\n"
+                        f"⚠️ **{qtd_erros}** lote(s) com problema.\n"
                         f"- 🆕 Criados: **{res['criados']}**\n"
                         f"- 🔄 Atualizados: **{res['atualizados']}**\n"
-                        f"- ❌ Erros: **{qtd_erros}** (veja detalhes abaixo)"
+                        f"- 📊 Total no banco: **{total_banco:,}**".replace(",", ".")
                     ),
                 }
                 st.session_state["cad_upload_erros"] = res["erros"]

@@ -28,10 +28,27 @@ def renderizar_cad_dashboard(usuario):
         unsafe_allow_html=True,
     )
 
-    dados = repo_cadastros.listar_cadastros()
-    if not dados:
+    # Conta no banco PRIMEIRO (mais rápido que listar tudo)
+    total_no_banco = repo_cadastros.contar_cadastros()
+
+    if total_no_banco == 0:
         st.info("📭 Nenhum cadastro registrado. Vá em **📥 Upload** pra carregar a planilha.")
         return
+
+    dados = repo_cadastros.listar_cadastros()
+
+    if not dados:
+        st.error(
+            f"⚠️ O banco tem **{total_no_banco}** cadastros, mas a query não retornou nada. "
+            f"Pode ser problema de permissão (RLS) ou erro de conexão. Recarregue a página."
+        )
+        return
+
+    if len(dados) < total_no_banco:
+        st.warning(
+            f"⚠️ Lendo apenas **{len(dados):,}** de **{total_no_banco:,}** cadastros do banco. "
+            "Recarregue a página se faltar algo."
+        )
 
     df = pd.DataFrame(dados)
     df["data_cadastramento"] = pd.to_datetime(df["data_cadastramento"])
