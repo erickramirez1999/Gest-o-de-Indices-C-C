@@ -47,6 +47,28 @@ def gerar_ppt_credito(dados: dict, mes_label: str) -> bytes:
     return _salvar(prs)
 
 
+def gerar_ppt_comparativo_credito(
+    dados_a: dict,
+    dados_b: dict,
+    rotulo_a: str,
+    rotulo_b: str,
+) -> bytes:
+    """
+    Gera apresentação PPT comparando 2 períodos do Crédito.
+    `dados_a` e `dados_b` vêm da leitura de leitor_credito.ler_multiplos_arquivos_credito.
+    """
+    prs = _nova_apresentacao()
+    periodo_str = f"{rotulo_a}  vs  {rotulo_b}"
+    _slide_capa(prs, "Comparativo Semanal", periodo_str, "Análise de Crédito · Grupo LLE")
+    _slide_comparativo_kpis_credito(prs, dados_a, dados_b, rotulo_a, rotulo_b)
+    _slide_comparativo_liberacoes(prs, dados_a, dados_b, rotulo_a, rotulo_b)
+    _slide_comparativo_limite(prs, dados_a, dados_b, rotulo_a, rotulo_b)
+    _slide_comparativo_tempo(prs, dados_a, dados_b, rotulo_a, rotulo_b)
+    _slide_comparativo_analise(prs, dados_a, dados_b, rotulo_a, rotulo_b)
+    _slide_encerramento(prs, "COMPARATIVO")
+    return _salvar(prs)
+
+
 def gerar_ppt_reanalises(dados: dict, mes_label: str) -> bytes:
     prs = _nova_apresentacao()
     _slide_capa(prs, "Reanálises de Limite de Crédito", mes_label, "Análise de Crédito · Grupo LLE")
@@ -799,6 +821,290 @@ def _slide_destaques_texto(prs, linhas: list, titulo: str, periodo: str):
     _cabecalho(slide, prs, titulo, periodo)
     _bloco_texto_analise(slide, linhas)
 
+
+# ============================================================
+# SLIDES — COMPARATIVO SEMANAL DE CRÉDITO
+# ============================================================
+
+def _safe_pct_local(num, den):
+    if den == 0:
+        return 0.0
+    return round(num / den * 100, 1)
+
+
+def _delta_str(a, b, sufixo=""):
+    """Retorna string de variação com seta + cor (texto)."""
+    if a == 0 and b == 0:
+        return "—"
+    if a == 0:
+        return f"▲ Novo ({b}{sufixo})"
+    delta = (b - a) / abs(a) * 100
+    seta = "▲" if delta > 0 else ("▼" if delta < 0 else "■")
+    return f"{seta} {delta:+.1f}% ({a}{sufixo} → {b}{sufixo})"
+
+
+def _slide_comparativo_kpis_credito(prs, dados_a, dados_b, rot_a, rot_b):
+    from pptx.util import Inches
+    slide = _novo_slide(prs)
+    _cabecalho(slide, prs, "RESUMO COMPARATIVO — LIBERAÇÕES", f"{rot_a} vs {rot_b}")
+
+    pd_a = len(dados_a.get("passaram_direto", []))
+    pd_b = len(dados_b.get("passaram_direto", []))
+    lib_a = len(dados_a.get("liberados", []))
+    lib_b = len(dados_b.get("liberados", []))
+    neg_a = len(dados_a.get("negados", []))
+    neg_b = len(dados_b.get("negados", []))
+    total_a = pd_a + lib_a + neg_a
+    total_b = pd_b + lib_b + neg_b
+    aprov_a = pd_a + lib_a
+    aprov_b = pd_b + lib_b
+    taxa_a = _safe_pct_local(aprov_a, total_a)
+    taxa_b = _safe_pct_local(aprov_b, total_b)
+    taxa_n_a = _safe_pct_local(neg_a, total_a)
+    taxa_n_b = _safe_pct_local(neg_b, total_b)
+
+    kpis = [
+        ("Total Pedidos",
+         f"{total_b:,}".replace(",", "."),
+         _delta_str(total_a, total_b),
+         AZUL_V),
+        ("Passaram Direto",
+         f"{pd_b:,}".replace(",", "."),
+         _delta_str(pd_a, pd_b),
+         VERDE),
+        ("Liberados (Analista)",
+         f"{lib_b:,}".replace(",", "."),
+         _delta_str(lib_a, lib_b),
+         AZUL_V),
+        ("Negados",
+         f"{neg_b:,}".replace(",", "."),
+         _delta_str(neg_a, neg_b),
+         VERMELHO),
+        ("Taxa de Aprovação",
+         f"{taxa_b:.1f}%",
+         _delta_str(taxa_a, taxa_b, "%"),
+         VERDE),
+        ("Taxa de Negação",
+         f"{taxa_n_b:.1f}%",
+         _delta_str(taxa_n_a, taxa_n_b, "%"),
+         VERMELHO),
+    ]
+    _grid_kpis(slide, kpis, Inches(1.5))
+
+
+def _slide_comparativo_liberacoes(prs, dados_a, dados_b, rot_a, rot_b):
+    from pptx.util import Inches
+    slide = _novo_slide(prs)
+    _cabecalho(slide, prs, "LIBERAÇÕES — COMPARATIVO", f"{rot_a} vs {rot_b}")
+
+    pd_a = len(dados_a.get("passaram_direto", []))
+    pd_b = len(dados_b.get("passaram_direto", []))
+    lib_a = len(dados_a.get("liberados", []))
+    lib_b = len(dados_b.get("liberados", []))
+    neg_a = len(dados_a.get("negados", []))
+    neg_b = len(dados_b.get("negados", []))
+
+    col_l, col_r = Inches(0.3), Inches(6.8)
+    w, h = Inches(6.2), Inches(5.2)
+
+    fig1 = _fig_barras_duplas(
+        ["Passaram Direto", "Liberados", "Negados"],
+        [pd_a, lib_a, neg_a],
+        [pd_b, lib_b, neg_b],
+        rot_a, rot_b,
+        "Quantidade de Pedidos por Tipo",
+    )
+    _inserir_grafico(slide, fig1, col_l, Inches(1.5), w, h)
+
+    total_a = pd_a + lib_a + neg_a
+    total_b = pd_b + lib_b + neg_b
+    fig2 = _fig_barras_duplas(
+        ["Aprovação", "Negação"],
+        [_safe_pct_local(pd_a + lib_a, total_a), _safe_pct_local(neg_a, total_a)],
+        [_safe_pct_local(pd_b + lib_b, total_b), _safe_pct_local(neg_b, total_b)],
+        rot_a, rot_b,
+        "Taxas de Aprovação e Negação (%)",
+    )
+    _inserir_grafico(slide, fig2, col_r, Inches(1.5), w, h)
+
+
+def _slide_comparativo_limite(prs, dados_a, dados_b, rot_a, rot_b):
+    import pandas as pd
+    from pptx.util import Inches
+
+    df_a = dados_a.get("limites", pd.DataFrame())
+    df_b = dados_b.get("limites", pd.DataFrame())
+
+    # Se nenhum dos dois tem dados, pula esse slide
+    if (df_a is None or (hasattr(df_a, "empty") and df_a.empty)) and \
+       (df_b is None or (hasattr(df_b, "empty") and df_b.empty)):
+        return
+
+    slide = _novo_slide(prs)
+    _cabecalho(slide, prs, "AUMENTO DE LIMITE — COMPARATIVO", f"{rot_a} vs {rot_b}")
+
+    df_a = pd.DataFrame(df_a) if isinstance(df_a, list) else df_a
+    df_b = pd.DataFrame(df_b) if isinstance(df_b, list) else df_b
+
+    qtd_a = len(df_a) if df_a is not None else 0
+    qtd_b = len(df_b) if df_b is not None else 0
+
+    inc_a = inc_b = 0.0
+    if df_a is not None and not df_a.empty and "limite_anterior" in df_a.columns and "novo_limite" in df_a.columns:
+        inc_a = float((df_a["novo_limite"] - df_a["limite_anterior"]).sum())
+    if df_b is not None and not df_b.empty and "limite_anterior" in df_b.columns and "novo_limite" in df_b.columns:
+        inc_b = float((df_b["novo_limite"] - df_b["limite_anterior"]).sum())
+
+    medio_a = inc_a / qtd_a if qtd_a > 0 else 0
+    medio_b = inc_b / qtd_b if qtd_b > 0 else 0
+
+    kpis = [
+        ("Qtd. Alterações",
+         f"{qtd_b}",
+         _delta_str(qtd_a, qtd_b),
+         AMARELO),
+        ("Incremento Total",
+         _brl(inc_b),
+         _delta_str(inc_a, inc_b),
+         VERDE),
+        ("Incremento Médio",
+         _brl(medio_b),
+         _delta_str(medio_a, medio_b),
+         AZUL_V),
+    ]
+    _grid_kpis(slide, kpis, Inches(1.5))
+
+
+def _slide_comparativo_tempo(prs, dados_a, dados_b, rot_a, rot_b):
+    import pandas as pd
+    from pptx.util import Inches
+
+    df_a = dados_a.get("tempo_tela", pd.DataFrame())
+    df_b = dados_b.get("tempo_tela", pd.DataFrame())
+    if (df_a is None or (hasattr(df_a, "empty") and df_a.empty)) and \
+       (df_b is None or (hasattr(df_b, "empty") and df_b.empty)):
+        return
+
+    df_a = pd.DataFrame(df_a) if isinstance(df_a, list) else df_a
+    df_b = pd.DataFrame(df_b) if isinstance(df_b, list) else df_b
+
+    # Tenta identificar a coluna de tempo e evento
+    col_tempo = None
+    col_evt = None
+    for c in ["tempo_minutos", "tempo", "Tempo (minutos)", "Tempo"]:
+        if (df_a is not None and c in df_a.columns) or (df_b is not None and c in df_b.columns):
+            col_tempo = c
+            break
+    for c in ["desc_evento", "Desc Evento", "evento", "Evento"]:
+        if (df_a is not None and c in df_a.columns) or (df_b is not None and c in df_b.columns):
+            col_evt = c
+            break
+    if col_tempo is None:
+        return
+
+    slide = _novo_slide(prs)
+    _cabecalho(slide, prs, "TEMPO DE LIBERAÇÃO — COMPARATIVO", f"{rot_a} vs {rot_b}")
+
+    media_a = float(df_a[col_tempo].mean()) if df_a is not None and not df_a.empty and col_tempo in df_a.columns else 0
+    media_b = float(df_b[col_tempo].mean()) if df_b is not None and not df_b.empty and col_tempo in df_b.columns else 0
+    qtd_a = len(df_a) if df_a is not None else 0
+    qtd_b = len(df_b) if df_b is not None else 0
+
+    # KPI à esquerda (texto + gráfico à direita)
+    kpis = [
+        ("Qtd. Eventos",
+         f"{qtd_b}",
+         _delta_str(qtd_a, qtd_b),
+         AZUL_V),
+        ("Tempo Médio (min)",
+         f"{media_b:.1f}",
+         _delta_str(media_a, media_b, " min"),
+         AMARELO),
+    ]
+    _grid_kpis(slide, kpis, Inches(1.5))
+
+    # Se tem dados de eventos, adiciona gráfico
+    if col_evt and (df_a is not None and not df_a.empty) and (df_b is not None and not df_b.empty):
+        evt_a = df_a.groupby(col_evt)[col_tempo].mean() if col_evt in df_a.columns else pd.Series(dtype=float)
+        evt_b = df_b.groupby(col_evt)[col_tempo].mean() if col_evt in df_b.columns else pd.Series(dtype=float)
+        eventos = sorted(set(evt_a.index) | set(evt_b.index))[:8]  # max 8 pra caber
+        if eventos:
+            fig = _fig_barras_duplas(
+                eventos,
+                [float(evt_a.get(e, 0)) for e in eventos],
+                [float(evt_b.get(e, 0)) for e in eventos],
+                rot_a, rot_b,
+                "Tempo Médio por Evento (minutos)",
+            )
+            _inserir_grafico(slide, fig, Inches(0.3), Inches(4.5), Inches(12.7), Inches(2.5))
+
+
+def _slide_comparativo_analise(prs, dados_a, dados_b, rot_a, rot_b):
+    """Slide texto com bullets de análise automática."""
+    slide = _novo_slide(prs)
+    _cabecalho(slide, prs, "ANÁLISE COMPARATIVA", f"{rot_a} vs {rot_b}")
+
+    pd_a = len(dados_a.get("passaram_direto", []))
+    pd_b = len(dados_b.get("passaram_direto", []))
+    lib_a = len(dados_a.get("liberados", []))
+    lib_b = len(dados_b.get("liberados", []))
+    neg_a = len(dados_a.get("negados", []))
+    neg_b = len(dados_b.get("negados", []))
+    total_a = pd_a + lib_a + neg_a
+    total_b = pd_b + lib_b + neg_b
+
+    linhas = []
+    # Volume
+    if total_a > 0:
+        var_total = (total_b - total_a) / total_a * 100
+        tendencia = "subiu" if var_total > 0 else ("caiu" if var_total < 0 else "manteve")
+        linhas.append(f"Volume total {tendencia} {abs(var_total):.1f}% — de {total_a} para {total_b} pedidos.")
+
+    # Taxa de aprovação
+    taxa_a = _safe_pct_local(pd_a + lib_a, total_a)
+    taxa_b = _safe_pct_local(pd_b + lib_b, total_b)
+    if taxa_a > 0 or taxa_b > 0:
+        delta_taxa = taxa_b - taxa_a
+        if delta_taxa > 0:
+            linhas.append(f"Taxa de aprovação melhorou {delta_taxa:+.1f}pp — saiu de {taxa_a:.1f}% para {taxa_b:.1f}%.")
+        elif delta_taxa < 0:
+            linhas.append(f"Taxa de aprovação caiu {abs(delta_taxa):.1f}pp — saiu de {taxa_a:.1f}% para {taxa_b:.1f}%.")
+        else:
+            linhas.append(f"Taxa de aprovação estável em {taxa_b:.1f}%.")
+
+    # Passaram direto
+    if pd_a > 0:
+        var_pd = (pd_b - pd_a) / pd_a * 100
+        if abs(var_pd) > 5:
+            tendencia = "aumentou" if var_pd > 0 else "diminuiu"
+            linhas.append(f"Pedidos automáticos (passaram direto) {tendencia} {abs(var_pd):.1f}%.")
+
+    # Negados
+    if neg_a > 0:
+        var_neg = (neg_b - neg_a) / neg_a * 100
+        if abs(var_neg) > 5:
+            tendencia = "subiram" if var_neg > 0 else "caíram"
+            linhas.append(f"Negações {tendencia} {abs(var_neg):.1f}% — atenção ao critério de análise.")
+
+    # Limite e tempo, se tiver
+    import pandas as pd
+    df_lim_a = dados_a.get("limites", pd.DataFrame())
+    df_lim_b = dados_b.get("limites", pd.DataFrame())
+    if hasattr(df_lim_a, "empty") and hasattr(df_lim_b, "empty"):
+        if not df_lim_a.empty or not df_lim_b.empty:
+            linhas.append(f"Alterações de limite: {len(df_lim_a) if not df_lim_a.empty else 0} → {len(df_lim_b) if not df_lim_b.empty else 0}.")
+
+    if not linhas:
+        linhas = ["Sem variações significativas entre os períodos."]
+
+    # Converte pra formato (texto, cor, negrito) esperado por _bloco_texto_analise
+    linhas_fmt = [(linha, AZUL, False) for linha in linhas]
+    _bloco_texto_analise(slide, linhas_fmt)
+
+
+# ============================================================
+# ANÁLISES MENSAIS (existentes)
+# ============================================================
 
 def _analise_cobranca(dados: dict) -> list:
     ac = dados.get("acordos", {})
