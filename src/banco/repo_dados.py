@@ -19,6 +19,9 @@ def _limpar_registro(r: dict) -> dict:
         # numpy/pandas numéricos
         if hasattr(v, 'item'):
             v = v.item()
+        # bool ANTES de int/float (bool é subclasse de int)
+        if isinstance(v, bool):
+            return v
         if isinstance(v, float):
             if math.isnan(v) or math.isinf(v):
                 return None
@@ -28,8 +31,6 @@ def _limpar_registro(r: dict) -> dict:
             return float(v)
         if isinstance(v, int):
             return int(v)
-        if isinstance(v, bool):
-            return v
         return str(v) if not isinstance(v, str) else v
     return {k: _v(val) for k, val in r.items()}
 
