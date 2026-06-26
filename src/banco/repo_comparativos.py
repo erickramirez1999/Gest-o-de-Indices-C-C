@@ -7,6 +7,7 @@ Os dados são serializados em JSON pra não precisar guardar os arquivos.
 from __future__ import annotations
 
 import json
+import math
 from typing import Optional
 
 import pandas as pd
@@ -15,17 +16,38 @@ from src.banco.conexao import obter_conexao
 
 
 def _df_para_json(df) -> list:
-    """Converte um DataFrame em lista de dicts JSON-safe."""
+    """Converte um DataFrame em lista de dicts JSON-safe (sem NaN/inf)."""
     if df is None or (hasattr(df, "empty") and df.empty):
         return []
-    # Converte tipos pandas problemáticos
     df_safe = df.copy()
     for col in df_safe.columns:
-        if df_safe[col].dtype == "datetime64[ns]":
+        if str(df_safe[col].dtype).startswith("datetime"):
             df_safe[col] = df_safe[col].astype(str)
-        elif df_safe[col].dtype == "object":
-            df_safe[col] = df_safe[col].astype(str).replace("nan", None)
-    return df_safe.to_dict(orient="records")
+    registros = df_safe.to_dict(orient="records")
+    limpos = []
+    for rec in registros:
+        novo = {}
+        for k, v in rec.items():
+            if v is None:
+                novo[k] = None
+                continue
+            try:
+                if pd.isna(v):  # cobre NaN, NaT
+                    novo[k] = None
+                    continue
+            except (TypeError, ValueError):
+                pass
+            if hasattr(v, "item"):  # numpy -> python nativo
+                v = v.item()
+            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                novo[k] = None
+                continue
+            if isinstance(v, str) and v.strip().lower() in ("nan", "nat", "none"):
+                novo[k] = None
+                continue
+            novo[k] = v
+        limpos.append(novo)
+    return limpos
 
 
 def _json_para_df(lista) -> pd.DataFrame:
