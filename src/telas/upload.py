@@ -40,8 +40,9 @@ def _upload_cobranca(usuario):
         f"<div style='background:{AZUL_ESCURO}11; border-left:4px solid {AZUL_ESCURO}; "
         f"padding:12px; border-radius:6px; margin-bottom:16px;'>"
         f"<b>Arquivos aceitos (pode enviar vários de uma vez):</b><br>"
-        f"• Dashboard de Cobrança (.xlsx) — abas: Resumo Acordos, cobrança baixada, Relatório de produtividade<br>"
-        f"• Relatório de Produtividade bruto (.xlsx) — aba Relatorio com TTO diário por cobrador"
+        f"• Acordos Realizados Detalhado (.xlsx) — 1 linha por parcela, agrupado por acordo<br>"
+        f"• Ocorrências de Acordo (.xlsx) — acordos e quebras de acordo<br>"
+        f"• Relatório de Produtividade (.xlsx) — TTO diário por negociador"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -82,10 +83,14 @@ def _upload_cobranca(usuario):
             for proc in resultado["arquivos_processados"]:
                 st.caption(f"✓ {proc}")
 
-            c1, c2, c3 = st.columns(3)
+            ocor = resultado.get("ocorrencias")
+            n_quebras = int(ocor["eh_quebra"].sum()) if ocor is not None and not ocor.empty and "eh_quebra" in ocor else 0
+
+            c1, c2, c3, c4 = st.columns(4)
             c1.metric("Acordos", len(resultado["acordos"]))
             c2.metric("Baixas", len(resultado["baixas"]))
             c3.metric("Cobradores (perf.)", len(resultado["performance"]))
+            c4.metric("Quebras", n_quebras)
 
             if resultado["erros"]:
                 for e in resultado["erros"]:
@@ -116,12 +121,21 @@ def _upload_cobranca(usuario):
                         upload_id, mes_ano,
                         resultado["performance"].where(resultado["performance"].notna(), None).to_dict("records"),
                     )
+                ocor = resultado.get("ocorrencias")
+                n_quebras = 0
+                if ocor is not None and not ocor.empty:
+                    n_quebras = int(ocor["eh_quebra"].sum()) if "eh_quebra" in ocor else 0
+                    repo_dados.inserir_ocorrencias(
+                        upload_id, mes_ano,
+                        ocor.where(ocor.notna(), None).to_dict("records"),
+                    )
 
             st.success(
                 f"✓ Cobrança de **{nome_mes(mes_ano)}** carregada! "
                 f"{len(resultado['acordos'])} acordos · "
                 f"{len(resultado['baixas'])} baixas · "
-                f"{len(resultado['performance'])} cobradores."
+                f"{len(resultado['performance'])} cobradores · "
+                f"{n_quebras} quebras."
             )
             from src.banco.repo_auditoria import registrar as _audit
             _audit(usuario.id, usuario.nome, "UPLOAD_COBRANCA", "COBRANCA",

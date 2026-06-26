@@ -64,6 +64,7 @@ def _deletar_dados_do_upload(upload_id: int, area: str) -> None:
         sb.table("dados_cobranca_acordo").delete().eq("upload_id", upload_id).execute()
         sb.table("dados_cobranca_baixa").delete().eq("upload_id", upload_id).execute()
         sb.table("dados_cobranca_performance").delete().eq("upload_id", upload_id).execute()
+        sb.table("dados_cobranca_ocorrencia").delete().eq("upload_id", upload_id).execute()
     else:
         sb.table("dados_credito_liberacao").delete().eq("upload_id", upload_id).execute()
         sb.table("dados_credito_limite").delete().eq("upload_id", upload_id).execute()
@@ -110,6 +111,14 @@ def inserir_performance(upload_id: int, mes_ano: str, registros: list[dict]) -> 
     limpos = [_limpar_registro({**r, "upload_id": upload_id, "mes_ano": mes_ano}) for r in registros]
     for i in range(0, len(limpos), 500):
         obter_conexao().table("dados_cobranca_performance").insert(limpos[i:i+500]).execute()
+
+
+def inserir_ocorrencias(upload_id: int, mes_ano: str, registros: list[dict]) -> None:
+    if not registros:
+        return
+    limpos = [_limpar_registro({**r, "upload_id": upload_id, "mes_ano": mes_ano}) for r in registros]
+    for i in range(0, len(limpos), 500):
+        obter_conexao().table("dados_cobranca_ocorrencia").insert(limpos[i:i+500]).execute()
 
 
 # ============================================================
@@ -172,6 +181,10 @@ def buscar_baixas(mes_ano: str) -> list[dict]:
 
 def buscar_performance(mes_ano: str) -> list[dict]:
     return _buscar_todos("dados_cobranca_performance", mes_ano)
+
+
+def buscar_ocorrencias(mes_ano: str) -> list[dict]:
+    return _buscar_todos("dados_cobranca_ocorrencia", mes_ano)
 
 
 # ============================================================

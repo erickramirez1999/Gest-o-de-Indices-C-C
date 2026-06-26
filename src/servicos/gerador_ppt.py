@@ -115,7 +115,7 @@ def _slide_kpis_cobranca(prs, dados: dict, periodo: str):
         ("Valor Total Acordado", _brl(ac.get("valor_total", 0)), "soma dos acordos ativos", VERDE),
         ("Ticket Médio", _brl(ac.get("ticket_medio", 0)), "valor médio por acordo", AZUL_V),
         ("Total Recebido", _brl(bx.get("total_recebido", 0)), "cobrança baixada no período", VERDE),
-        ("Taxa de Cancelamento", _pct(ac.get("pct_cancelamento", 0)), "acordos cancelados", VERMELHO),
+        ("Taxa de Quebra", _pct(ac.get("pct_cancelamento", 0)), "acordos quebrados", VERMELHO),
         ("Aderência à Meta", _pct(pf.get("aderencia_media_pct", 0)), "meta de 2h/dia por cobrador", AZUL_V),
     ]
     _grid_kpis(slide, kpis, Inches(1.5))

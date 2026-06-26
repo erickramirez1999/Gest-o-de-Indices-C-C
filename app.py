@@ -43,6 +43,7 @@ PAGINAS_CREDITO = {
     "cred_reanalises": "🔄 Reanalises de Limite",
     "cred_geral": "📊 Geral",
     "cred_comparativo": "📊 Comparativo Semanal",
+    "cred_comparativos_salvos": "📋 Comparativos Salvos",
 }
 
 PAGINAS_FINANCEIRO = {
@@ -422,6 +423,9 @@ def renderizar_pagina(usuario, pagina: str):
     elif pagina == "cred_comparativo":
         from src.telas.cred_comparativo import renderizar_cred_comparativo
         renderizar_cred_comparativo(usuario)
+    elif pagina == "cred_comparativos_salvos":
+        from src.telas.cred_comparativos_salvos import renderizar_cred_comparativos_salvos
+        renderizar_cred_comparativos_salvos(usuario)
     elif pagina == "fin_upload":
         from src.telas.fin_upload import renderizar_fin_upload
         renderizar_fin_upload(usuario)

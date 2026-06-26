@@ -7,6 +7,7 @@ Tabelas:
   - dados_cobranca_acordo
   - dados_cobranca_baixa
   - dados_cobranca_performance
+  - dados_cobranca_ocorrencia
   - dados_credito_liberacoes
   - dados_credito_limite
 """
@@ -53,14 +54,39 @@ CREATE TABLE IF NOT EXISTS dados_cobranca_acordo (
     data_acordo DATE,
     forma_pagto TEXT,
     qtd_parcelas INTEGER,
+    qtd_parcelas_quitadas INTEGER,
     valor_parcela NUMERIC,
     valor_total NUMERIC,
+    valor_pago NUMERIC,
+    valor_atualizado NUMERIC,
     status TEXT,
     cancelado BOOLEAN DEFAULT FALSE
 );
 
 CREATE INDEX IF NOT EXISTS idx_acord_mes ON dados_cobranca_acordo(mes_ano);
 CREATE INDEX IF NOT EXISTS idx_acord_negociador ON dados_cobranca_acordo(negociador);
+
+-- COBRANÇA: OCORRÊNCIAS (origem: arquivo "ocorrencias_ACORDO_*.xlsx")
+-- Fonte das QUEBRAS de acordo (STATUS "98 - QUEBRA DE ACORDO").
+CREATE TABLE IF NOT EXISTS dados_cobranca_ocorrencia (
+    id BIGSERIAL PRIMARY KEY,
+    upload_id BIGINT NOT NULL REFERENCES upload_mes(id) ON DELETE CASCADE,
+    mes_ano TEXT NOT NULL,
+    negociador TEXT,
+    processo TEXT,
+    devedor TEXT,
+    cnpj TEXT,
+    cidade TEXT,
+    uf TEXT,
+    data_ocorrencia DATE,
+    status TEXT,
+    eh_quebra BOOLEAN DEFAULT FALSE,
+    eh_acordo BOOLEAN DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS idx_ocor_mes ON dados_cobranca_ocorrencia(mes_ano);
+CREATE INDEX IF NOT EXISTS idx_ocor_negociador ON dados_cobranca_ocorrencia(negociador);
+CREATE INDEX IF NOT EXISTS idx_ocor_quebra ON dados_cobranca_ocorrencia(eh_quebra);
 
 -- COBRANÇA: BAIXAS (origem: aba "cobrança baixada por cobrador")
 CREATE TABLE IF NOT EXISTS dados_cobranca_baixa (

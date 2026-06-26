@@ -119,6 +119,44 @@ def renderizar_cred_comparativo(usuario):
     # ─── Tempo Médio de Liberação ────────────────────────────────────
     _renderizar_tempo_tela(dados_a, dados_b, rotulo_a, rotulo_b)
 
+    # ─── Salvar comparativo ──────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 💾 Salvar Comparativo")
+    st.caption(
+        "Salve esse comparativo no banco pra acessar depois sem precisar "
+        "subir os arquivos de novo. Você pode abrir, exportar Excel ou PPT a qualquer momento."
+    )
+
+    titulo_default = f"Comparativo {rotulo_a} vs {rotulo_b}"
+    titulo_salvar = st.text_input(
+        "📝 Título do comparativo",
+        value=titulo_default,
+        key="cmp_titulo_salvar",
+    )
+
+    if st.button("💾 Salvar Comparativo", type="primary", use_container_width=True, key="cmp_btn_salvar"):
+        with st.spinner("💾 Salvando comparativo..."):
+            try:
+                from src.banco import repo_comparativos
+                comp_id = repo_comparativos.salvar_comparativo(
+                    titulo=titulo_salvar,
+                    rotulo_a=rotulo_a,
+                    rotulo_b=rotulo_b,
+                    dados_a=dados_a,
+                    dados_b=dados_b,
+                    usuario_id=usuario.id,
+                    usuario_nome=getattr(usuario, "nome", None) or getattr(usuario, "email", None),
+                )
+                st.success(f"✅ Comparativo salvo com sucesso! (ID: {comp_id})")
+                st.toast("Comparativo salvo!", icon="✅")
+                st.info(
+                    "👉 Pra visualizar depois, vá em **💳 Crédito → 📋 Comparativos Salvos** no menu."
+                )
+            except Exception as e:
+                st.error(f"❌ Erro ao salvar: {type(e).__name__}: {e}")
+                with st.expander("🔍 Detalhes técnicos"):
+                    st.exception(e)
+
     # ─── Exportar comparativo ────────────────────────────────────────
     st.markdown("---")
     st.markdown("### 📥 Exportar Comparativo")
