@@ -12,6 +12,10 @@
 
 -- 1) Novas colunas em ACORDOS
 ALTER TABLE dados_cobranca_acordo
+    ADD COLUMN IF NOT EXISTS processo TEXT;
+ALTER TABLE dados_cobranca_acordo
+    ADD COLUMN IF NOT EXISTS cnpj TEXT;
+ALTER TABLE dados_cobranca_acordo
     ADD COLUMN IF NOT EXISTS qtd_parcelas_quitadas INTEGER;
 ALTER TABLE dados_cobranca_acordo
     ADD COLUMN IF NOT EXISTS valor_pago NUMERIC;

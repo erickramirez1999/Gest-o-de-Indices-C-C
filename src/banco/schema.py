@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS dados_cobranca_acordo (
     upload_id BIGINT NOT NULL REFERENCES upload_mes(id) ON DELETE CASCADE,
     mes_ano TEXT NOT NULL,
     negociador TEXT,
+    processo TEXT,
+    cnpj TEXT,
     devedor TEXT,
     data_acordo DATE,
     forma_pagto TEXT,
