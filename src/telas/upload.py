@@ -125,10 +125,27 @@ def _upload_cobranca(usuario):
                 n_quebras = 0
                 if ocor is not None and not ocor.empty:
                     n_quebras = int(ocor["eh_quebra"].sum()) if "eh_quebra" in ocor else 0
-                    repo_dados.inserir_ocorrencias(
-                        upload_id, mes_ano,
-                        ocor.where(ocor.notna(), None).to_dict("records"),
-                    )
+                    try:
+                        repo_dados.inserir_ocorrencias(
+                            upload_id, mes_ano,
+                            ocor.where(ocor.notna(), None).to_dict("records"),
+                        )
+                    except Exception as e:
+                        det = {
+                            "code": getattr(e, "code", None),
+                            "message": getattr(e, "message", None),
+                            "details": getattr(e, "details", None),
+                            "hint": getattr(e, "hint", None),
+                        }
+                        st.error(
+                            "Falha ao gravar OCORRÊNCIAS no Supabase.\n\n"
+                            f"**code:** {det['code']}\n\n"
+                            f"**message:** {det['message']}\n\n"
+                            f"**details:** {det['details']}\n\n"
+                            f"**hint:** {det['hint']}\n\n"
+                            f"**raw:** {repr(e)[:800]}"
+                        )
+                        st.stop()
 
             st.success(
                 f"✓ Cobrança de **{nome_mes(mes_ano)}** carregada! "
