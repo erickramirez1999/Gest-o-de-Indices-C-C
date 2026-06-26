@@ -988,31 +988,27 @@ def _slide_comparativo_tempo(prs, dados_a, dados_b, rot_a, rot_b):
     df_a = pd.DataFrame(df_a) if isinstance(df_a, list) else df_a
     df_b = pd.DataFrame(df_b) if isinstance(df_b, list) else df_b
 
-    # Tenta identificar a coluna de tempo e evento
-    col_tempo = None
-    col_evt = None
-    for c in ["tempo_minutos", "tempo", "Tempo (minutos)", "Tempo"]:
-        if (df_a is not None and c in df_a.columns) or (df_b is not None and c in df_b.columns):
-            col_tempo = c
-            break
-    for c in ["desc_evento", "Desc Evento", "evento", "Evento"]:
-        if (df_a is not None and c in df_a.columns) or (df_b is not None and c in df_b.columns):
-            col_evt = c
-            break
-    if col_tempo is None:
-        return
+    # leitor_credito.ler_tempo_tela entrega dados JÁ agregados:
+    # 'analista', 'qtd_pedidos', 'tempo_total_min', 'tempo_medio_min'
 
     slide = _novo_slide(prs)
     _cabecalho(slide, prs, "TEMPO DE LIBERAÇÃO — COMPARATIVO", f"{rot_a} vs {rot_b}")
 
-    media_a = float(df_a[col_tempo].mean()) if df_a is not None and not df_a.empty and col_tempo in df_a.columns else 0
-    media_b = float(df_b[col_tempo].mean()) if df_b is not None and not df_b.empty and col_tempo in df_b.columns else 0
-    qtd_a = len(df_a) if df_a is not None else 0
-    qtd_b = len(df_b) if df_b is not None else 0
+    # Tempo médio global (ponderado)
+    def media_global(df):
+        if df is None or df.empty or "tempo_total_min" not in df.columns or "qtd_pedidos" not in df.columns:
+            return 0, 0
+        total_min = float(df["tempo_total_min"].sum())
+        total_qtd = int(df["qtd_pedidos"].sum())
+        return (total_min / total_qtd if total_qtd > 0 else 0), total_qtd
 
-    # KPI à esquerda (texto + gráfico à direita)
+    media_a, qtd_a = media_global(df_a)
+    media_b, qtd_b = media_global(df_b)
+    analistas_a = len(df_a) if df_a is not None else 0
+    analistas_b = len(df_b) if df_b is not None else 0
+
     kpis = [
-        ("Qtd. Eventos",
+        ("Total de Pedidos",
          f"{qtd_b}",
          _delta_str(qtd_a, qtd_b),
          AZUL_V),
@@ -1020,21 +1016,34 @@ def _slide_comparativo_tempo(prs, dados_a, dados_b, rot_a, rot_b):
          f"{media_b:.1f}",
          _delta_str(media_a, media_b, " min"),
          AMARELO),
+        ("Analistas Ativos",
+         f"{analistas_b}",
+         _delta_str(analistas_a, analistas_b),
+         VERDE),
     ]
     _grid_kpis(slide, kpis, Inches(1.5))
 
-    # Se tem dados de eventos, adiciona gráfico
-    if col_evt and (df_a is not None and not df_a.empty) and (df_b is not None and not df_b.empty):
-        evt_a = df_a.groupby(col_evt)[col_tempo].mean() if col_evt in df_a.columns else pd.Series(dtype=float)
-        evt_b = df_b.groupby(col_evt)[col_tempo].mean() if col_evt in df_b.columns else pd.Series(dtype=float)
-        eventos = sorted(set(evt_a.index) | set(evt_b.index))[:8]  # max 8 pra caber
-        if eventos:
+    # Gráfico por analista
+    if df_a is not None and not df_a.empty and "analista" in df_a.columns:
+        analistas = sorted(set(
+            df_a["analista"].tolist() if df_a is not None and not df_a.empty else []
+        ) | set(
+            df_b["analista"].tolist() if df_b is not None and not df_b.empty and "analista" in df_b.columns else []
+        ))[:8]
+
+        def get_tempo(df, nome):
+            if df is None or df.empty or "analista" not in df.columns:
+                return 0
+            row = df[df["analista"] == nome]
+            return float(row.iloc[0]["tempo_medio_min"]) if not row.empty and "tempo_medio_min" in row.columns else 0
+
+        if analistas:
             fig = _fig_barras_duplas(
-                eventos,
-                [float(evt_a.get(e, 0)) for e in eventos],
-                [float(evt_b.get(e, 0)) for e in eventos],
+                analistas,
+                [get_tempo(df_a, a) for a in analistas],
+                [get_tempo(df_b, a) for a in analistas],
                 rot_a, rot_b,
-                "Tempo Médio por Evento (minutos)",
+                "Tempo Médio por Analista (minutos)",
             )
             _inserir_grafico(slide, fig, Inches(0.3), Inches(4.5), Inches(12.7), Inches(2.5))
 

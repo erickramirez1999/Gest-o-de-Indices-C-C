@@ -383,61 +383,96 @@ def _renderizar_tempo_tela(dados_a, dados_b, rot_a, rot_b):
     st.markdown(f"<h3 style='color:{AZUL_ESCURO}'>⏱️ Tempo Médio de Liberação</h3>",
                 unsafe_allow_html=True)
 
-    col_tempo = None
-    for c in ["tempo_minutos", "tempo", "Tempo (minutos)", "Tempo"]:
-        if c in df_a.columns or c in df_b.columns:
-            col_tempo = c
-            break
+    # O leitor entrega dados JÁ AGREGADOS por analista, com colunas:
+    # 'analista', 'qtd_pedidos', 'tempo_total_min', 'tempo_medio_min'
+    # Vamos usar essas colunas direto.
 
-    if col_tempo is None:
-        st.info("Não foi possível identificar a coluna de tempo nas planilhas.")
-        return
+    # Métricas globais — média ponderada (total minutos / total pedidos)
+    if not df_a.empty:
+        total_min_a = df_a["tempo_total_min"].sum() if "tempo_total_min" in df_a.columns else 0
+        total_qtd_a = df_a["qtd_pedidos"].sum() if "qtd_pedidos" in df_a.columns else 0
+        media_a = total_min_a / total_qtd_a if total_qtd_a > 0 else 0
+    else:
+        total_min_a = 0
+        total_qtd_a = 0
+        media_a = 0
 
-    media_a = df_a[col_tempo].mean() if not df_a.empty and col_tempo in df_a.columns else 0
-    media_b = df_b[col_tempo].mean() if not df_b.empty and col_tempo in df_b.columns else 0
-    qtd_a = len(df_a)
-    qtd_b = len(df_b)
+    if not df_b.empty:
+        total_min_b = df_b["tempo_total_min"].sum() if "tempo_total_min" in df_b.columns else 0
+        total_qtd_b = df_b["qtd_pedidos"].sum() if "qtd_pedidos" in df_b.columns else 0
+        media_b = total_min_b / total_qtd_b if total_qtd_b > 0 else 0
+    else:
+        total_min_b = 0
+        total_qtd_b = 0
+        media_b = 0
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
-        _kpi_card("📋 Qtd. Eventos", qtd_a, qtd_b, rot_a, rot_b, cor=COR_ROXO)
+        _kpi_card("📋 Total de Pedidos", total_qtd_a, total_qtd_b, rot_a, rot_b, cor=COR_ROXO)
     with col2:
         _kpi_card_min("⏱️ Tempo Médio", media_a, media_b, rot_a, rot_b, cor=COR_AZUL)
+    with col3:
+        _kpi_card("👥 Analistas Ativos", len(df_a), len(df_b), rot_a, rot_b, cor=AZUL_VIVO)
 
-    # Comparar por tipo de evento, se houver
-    col_evento = None
-    for c in ["desc_evento", "Desc Evento", "evento", "Evento"]:
-        if c in df_a.columns or c in df_b.columns:
-            col_evento = c
-            break
+    # Comparativo por analista
+    if "analista" in df_a.columns or "analista" in df_b.columns:
+        st.markdown("##### 📊 Tempo Médio por Analista")
+        analistas = sorted(set(
+            (df_a["analista"].tolist() if not df_a.empty else []) +
+            (df_b["analista"].tolist() if not df_b.empty else [])
+        ))
 
-    if col_evento and (not df_a.empty or not df_b.empty):
-        st.markdown("##### 📊 Tempo Médio por Tipo de Evento")
-        evt_a = df_a.groupby(col_evento)[col_tempo].mean() if not df_a.empty else pd.Series(dtype=float)
-        evt_b = df_b.groupby(col_evento)[col_tempo].mean() if not df_b.empty else pd.Series(dtype=float)
-        eventos = sorted(set(evt_a.index) | set(evt_b.index))
+        def get_tempo(df, nome):
+            if df.empty or "analista" not in df.columns:
+                return 0
+            row = df[df["analista"] == nome]
+            if row.empty:
+                return 0
+            return float(row.iloc[0]["tempo_medio_min"]) if "tempo_medio_min" in row.columns else 0
+
+        def get_qtd(df, nome):
+            if df.empty or "analista" not in df.columns:
+                return 0
+            row = df[df["analista"] == nome]
+            if row.empty:
+                return 0
+            return int(row.iloc[0]["qtd_pedidos"]) if "qtd_pedidos" in row.columns else 0
 
         fig = go.Figure()
         fig.add_trace(go.Bar(
-            name=rot_a, x=eventos,
-            y=[evt_a.get(e, 0) for e in eventos],
+            name=rot_a, x=analistas,
+            y=[get_tempo(df_a, a) for a in analistas],
             marker_color=AZUL_VIVO,
-            text=[f"{evt_a.get(e, 0):.1f}m" for e in eventos],
+            text=[f"{get_tempo(df_a, a):.1f}m" for a in analistas],
             textposition="outside",
         ))
         fig.add_trace(go.Bar(
-            name=rot_b, x=eventos,
-            y=[evt_b.get(e, 0) for e in eventos],
+            name=rot_b, x=analistas,
+            y=[get_tempo(df_b, a) for a in analistas],
             marker_color=COR_AMARELO,
-            text=[f"{evt_b.get(e, 0):.1f}m" for e in eventos],
+            text=[f"{get_tempo(df_b, a):.1f}m" for a in analistas],
             textposition="outside",
         ))
         fig.update_layout(
-            barmode="group", height=380, margin=dict(t=20, b=20),
-            yaxis_title="Minutos",
+            barmode="group", height=400, margin=dict(t=20, b=80),
+            yaxis_title="Minutos (tempo médio)",
+            xaxis_tickangle=-30,
             legend=dict(orientation="h", yanchor="bottom", y=1.02),
         )
         st.plotly_chart(fig, use_container_width=True)
+
+        # Tabela detalhada
+        st.markdown("##### 📋 Detalhamento")
+        linhas = []
+        for a in analistas:
+            linhas.append({
+                "Analista": a,
+                f"Pedidos {rot_a}": get_qtd(df_a, a),
+                f"Tempo médio {rot_a}": f"{get_tempo(df_a, a):.1f} min",
+                f"Pedidos {rot_b}": get_qtd(df_b, a),
+                f"Tempo médio {rot_b}": f"{get_tempo(df_b, a):.1f} min",
+            })
+        st.dataframe(pd.DataFrame(linhas), use_container_width=True, hide_index=True)
 
 
 # Helpers extras (R$ e minutos)
