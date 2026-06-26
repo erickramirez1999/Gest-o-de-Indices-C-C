@@ -40,6 +40,38 @@ def _limpar_registro(r: dict) -> dict:
 # UPLOADS
 # ============================================================
 
+def registrar_upload_incremental(area: str, mes_ano: str, nome_arquivo: str,
+                                 usuario_id: int, tabelas_substituir: list[str]) -> int:
+    """
+    Mantém UM upload por mês/área e substitui APENAS as categorias (tabelas)
+    presentes neste envio. Categorias ausentes ficam intactas — permite subir
+    os arquivos avulsos (acordos, baixas, ocorrências, produtividade) em
+    momentos diferentes sem apagar o que já foi carregado no mesmo mês.
+    """
+    sb = obter_conexao()
+    ex = sb.table("upload_mes").select("id").eq("area", area).eq("mes_ano", mes_ano).execute()
+    if ex.data:
+        upload_id = ex.data[0]["id"]
+        sb.table("upload_mes").update({
+            "nome_arquivo": nome_arquivo,
+            "enviado_por_id": usuario_id,
+        }).eq("id", upload_id).execute()
+    else:
+        r = sb.table("upload_mes").insert({
+            "area": area,
+            "mes_ano": mes_ano,
+            "nome_arquivo": nome_arquivo,
+            "enviado_por_id": usuario_id,
+        }).execute()
+        upload_id = r.data[0]["id"]
+
+    # Substitui só as categorias que vieram neste envio (por mes_ano)
+    for tabela in tabelas_substituir:
+        sb.table(tabela).delete().eq("mes_ano", mes_ano).execute()
+
+    return upload_id
+
+
 def registrar_upload(area: str, mes_ano: str, nome_arquivo: str, usuario_id: int) -> int:
     """Registra ou substitui o upload de um mês. Retorna o ID."""
     sb = obter_conexao()

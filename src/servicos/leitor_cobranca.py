@@ -60,6 +60,11 @@ def ler_multiplos_arquivos_cobranca(arquivos: list[tuple[bytes, str]]) -> dict:
             resultado["erros"] += erros
             resultado["ocorrencias"] = _acumular(resultado["ocorrencias"], df)
 
+        elif tipo == "BAIXAS":
+            df, erros = _ler_baixas_arquivo(bytes_arq, nome)
+            resultado["erros"] += erros
+            resultado["baixas"] = _acumular(resultado["baixas"], df)
+
         elif tipo == "TTO_BRUTO":
             r = _ler_tto_bruto(bytes_arq, nome)
             resultado["erros"] += r["erros"]
@@ -90,6 +95,7 @@ def _rotulo(tipo: str) -> str:
     return {
         "ACORDOS_REALIZADOS": "Acordos Realizados",
         "OCORRENCIAS": "Ocorrências (acordo/quebra)",
+        "BAIXAS": "Cobrança Baixada",
         "TTO_BRUTO": "Produtividade (TTO)",
         "DASHBOARD": "Dashboard (formato antigo)",
     }.get(tipo, "Desconhecido")
@@ -129,6 +135,10 @@ def _detectar_tipo(bytes_arq: bytes, nome: str) -> str:
 
     if tem("DATA OCORR") or tem("HISTÓRICO INTERNO") or tem("HISTORICO INTERNO"):
         return "OCORRENCIAS"
+
+    if tem("COBRADOR") and (tem("VLR.DESDOB") or tem("VLR LÍQUIDO") or tem("VLR LIQUIDO")) \
+            and (tem("DIAS DE ATRASO") or tem("DE 0 A 30")):
+        return "BAIXAS"
 
     if tem("PROCESSO", "DATA ACORDO", "PARCELA") and (
         tem("VALOR PAGO") or tem("FORMA PAGTO")
@@ -450,6 +460,18 @@ def _ler_dashboard(bytes_arq: bytes, nome: str) -> dict:
             erros.append(f"Erro em Cobrança Baixada: {e}")
 
     return resultado
+
+
+def _ler_baixas_arquivo(bytes_arq: bytes, nome: str) -> tuple[pd.DataFrame, list]:
+    try:
+        engine = "xlrd" if nome.lower().endswith(".xls") else "openpyxl"
+        df = pd.read_excel(io.BytesIO(bytes_arq), engine=engine)
+    except Exception as e:
+        return pd.DataFrame(), [f"Erro ao abrir '{nome}': {e}"]
+    try:
+        return _ler_baixas(df), []
+    except Exception as e:
+        return pd.DataFrame(), [f"Erro ao processar baixas em '{nome}': {e}"]
 
 
 def _ler_baixas(df: pd.DataFrame) -> pd.DataFrame:

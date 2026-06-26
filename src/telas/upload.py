@@ -42,7 +42,9 @@ def _upload_cobranca(usuario):
         f"<b>Arquivos aceitos (pode enviar vários de uma vez):</b><br>"
         f"• Acordos Realizados Detalhado (.xlsx) — 1 linha por parcela, agrupado por acordo<br>"
         f"• Ocorrências de Acordo (.xlsx) — acordos e quebras de acordo<br>"
-        f"• Relatório de Produtividade (.xlsx) — TTO diário por negociador"
+        f"• Cobrança Baixada por Cobrador (.xls/.xlsx) — baixas e aging<br>"
+        f"• Relatório de Produtividade (.xlsx) — TTO diário por negociador<br>"
+        f"<i>Pode subir em momentos diferentes: cada envio substitui só a sua categoria, sem apagar o resto do mês.</i>"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -101,29 +103,45 @@ def _upload_cobranca(usuario):
                 lista = [(arq.read(), arq.name) for arq in arquivos]
                 resultado = ler_multiplos_arquivos_cobranca(lista)
 
+                # Só substitui as categorias que vieram neste envio
+                tem_acordos = not resultado["acordos"].empty
+                tem_baixas = not resultado["baixas"].empty
+                tem_perf = not resultado["performance"].empty
+                ocor = resultado.get("ocorrencias")
+                tem_ocor = ocor is not None and not ocor.empty
+
+                tabelas = []
+                if tem_acordos: tabelas.append("dados_cobranca_acordo")
+                if tem_baixas: tabelas.append("dados_cobranca_baixa")
+                if tem_perf: tabelas.append("dados_cobranca_performance")
+                if tem_ocor: tabelas.append("dados_cobranca_ocorrencia")
+
+                if not tabelas:
+                    st.warning("Nenhum dado reconhecido nos arquivos enviados.")
+                    st.stop()
+
                 nome_ref = " + ".join(arq.name for arq in arquivos)
-                upload_id = repo_dados.registrar_upload(
-                    "COBRANCA", mes_ano, nome_ref, usuario.id
+                upload_id = repo_dados.registrar_upload_incremental(
+                    "COBRANCA", mes_ano, nome_ref, usuario.id, tabelas
                 )
 
-                if not resultado["acordos"].empty:
+                if tem_acordos:
                     repo_dados.inserir_acordos(
                         upload_id, mes_ano,
                         resultado["acordos"].where(resultado["acordos"].notna(), None).to_dict("records"),
                     )
-                if not resultado["baixas"].empty:
+                if tem_baixas:
                     repo_dados.inserir_baixas(
                         upload_id, mes_ano,
                         resultado["baixas"].where(resultado["baixas"].notna(), None).to_dict("records"),
                     )
-                if not resultado["performance"].empty:
+                if tem_perf:
                     repo_dados.inserir_performance(
                         upload_id, mes_ano,
                         resultado["performance"].where(resultado["performance"].notna(), None).to_dict("records"),
                     )
-                ocor = resultado.get("ocorrencias")
                 n_quebras = 0
-                if ocor is not None and not ocor.empty:
+                if tem_ocor:
                     n_quebras = int(ocor["eh_quebra"].sum()) if "eh_quebra" in ocor else 0
                     try:
                         repo_dados.inserir_ocorrencias(
@@ -147,12 +165,15 @@ def _upload_cobranca(usuario):
                         )
                         st.stop()
 
+            partes = []
+            if tem_acordos: partes.append(f"{len(resultado['acordos'])} acordos")
+            if tem_baixas: partes.append(f"{len(resultado['baixas'])} baixas")
+            if tem_perf: partes.append(f"{len(resultado['performance'])} cobradores")
+            if tem_ocor: partes.append(f"{n_quebras} quebras")
             st.success(
-                f"✓ Cobrança de **{nome_mes(mes_ano)}** carregada! "
-                f"{len(resultado['acordos'])} acordos · "
-                f"{len(resultado['baixas'])} baixas · "
-                f"{len(resultado['performance'])} cobradores · "
-                f"{n_quebras} quebras."
+                f"✓ Cobrança de **{nome_mes(mes_ano)}** atualizada! "
+                + " · ".join(partes)
+                + ". (Só as categorias enviadas foram substituídas; o restante do mês foi mantido.)"
             )
             from src.banco.repo_auditoria import registrar as _audit
             _audit(usuario.id, usuario.nome, "UPLOAD_COBRANCA", "COBRANCA",
