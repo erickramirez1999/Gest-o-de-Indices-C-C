@@ -1222,17 +1222,23 @@ def _slide_capa(prs, titulo: str, periodo: str, subtitulo: str):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     w, h = prs.slide_width, prs.slide_height
     _ret(slide, 0, 0, w, h, AZUL)
-    _ret(slide, 0, 0, Inches(0.5), h, AMARELO)
+    # círculos decorativos (azul mais claro)
+    _oval(slide, Inches(10.0), Inches(-1.7), Inches(4.8), Inches(4.8), "0B2A6B")
+    _oval(slide, Inches(11.5), Inches(4.6), Inches(3.6), Inches(3.6), "0B2A6B")
+    _ret(slide, 0, 0, Inches(0.18), h, AMARELO)
     _ret(slide, 0, h - Inches(0.07), w, Inches(0.07), AMARELO)
-    _txt(slide, titulo.upper(), Inches(1), Inches(2.0), Inches(11), Inches(1.4),
-         Pt(40), BRANCO, bold=True)
-    _ret(slide, Inches(1), Inches(3.55), Inches(5), Inches(0.045), AMARELO)
-    _txt(slide, periodo, Inches(1), Inches(3.7), Inches(9), Inches(0.6),
-         Pt(22), AMARELO, bold=True)
-    _txt(slide, subtitulo, Inches(1), Inches(4.45), Inches(10), Inches(0.45),
-         Pt(13), "AAAAAA")
-    _txt(slide, "GRUPO LLE  ·  Gestão Financeira", Inches(1), Inches(6.75),
-         Inches(10), Inches(0.4), Pt(10), AMARELO)
+
+    _txt(slide, "GRUPO LLE FERRAGENS RJ", Inches(0.9), Inches(1.55),
+         Inches(10), Inches(0.4), Pt(15), AMARELO, bold=True)
+    _txt(slide, titulo, Inches(0.85), Inches(2.15), Inches(11.4), Inches(1.6),
+         Pt(42), BRANCO, bold=True)
+    _ret(slide, Inches(0.92), Inches(3.95), Inches(3.4), Inches(0.05), AMARELO)
+    _txt(slide, periodo, Inches(0.9), Inches(4.15), Inches(10), Inches(0.55),
+         Pt(20), "CAD6F0", bold=True)
+    _txt(slide, subtitulo, Inches(0.9), Inches(4.8), Inches(10.5), Inches(0.45),
+         Pt(13), "AEBDDD")
+    _txt(slide, "Documento confidencial · Uso interno", Inches(0.9), Inches(6.75),
+         Inches(8), Inches(0.4), Pt(10), "8497C6")
 
 
 def _slide_encerramento(prs, area: str):
@@ -1240,14 +1246,17 @@ def _slide_encerramento(prs, area: str):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     w, h = prs.slide_width, prs.slide_height
     _ret(slide, 0, 0, w, h, AZUL)
-    _ret(slide, 0, 0, Inches(0.5), h, AMARELO)
+    _oval(slide, Inches(-1.6), Inches(4.8), Inches(4.4), Inches(4.4), "0B2A6B")
+    _oval(slide, Inches(10.6), Inches(-1.5), Inches(4.2), Inches(4.2), "0B2A6B")
+    _ret(slide, 0, 0, Inches(0.18), h, AMARELO)
     _ret(slide, 0, h - Inches(0.07), w, Inches(0.07), AMARELO)
-    _txt(slide, "Obrigado.", Inches(1.5), Inches(2.6), Inches(10), Inches(1.2),
-         Pt(52), BRANCO, bold=True)
-    _txt(slide, f"Equipe de {area.title()}  ·  Grupo LLE Ferragens",
-         Inches(1.5), Inches(4.1), Inches(10), Inches(0.5), Pt(16), AMARELO)
-    _txt(slide, "GRUPO LLE  ·  Gestão Financeira",
-         Inches(1.5), Inches(6.6), Inches(10), Inches(0.4), Pt(11), "AAAAAA")
+    _txt(slide, "Obrigado.", Inches(1.4), Inches(2.7), Inches(10), Inches(1.2),
+         Pt(54), BRANCO, bold=True)
+    _ret(slide, Inches(1.5), Inches(4.05), Inches(3.0), Inches(0.05), AMARELO)
+    _txt(slide, f"Equipe de {area.title()}  ·  Grupo LLE Ferragens RJ",
+         Inches(1.45), Inches(4.25), Inches(10), Inches(0.5), Pt(16), "CAD6F0")
+    _txt(slide, "Fonte: Sankhya", Inches(1.45), Inches(6.7), Inches(10),
+         Inches(0.4), Pt(10), "8497C6")
 
 
 def _texto_sem_dados(slide):
@@ -1257,13 +1266,13 @@ def _texto_sem_dados(slide):
 
 
 def _grid_kpis(slide, kpis: list, top):
-    from pptx.util import Inches, Pt, Emu
+    from pptx.util import Inches, Pt
     cols = 3
     card_w = Inches(3.95)
-    card_h = Inches(1.52)
-    gap_x = Inches(0.22)
-    gap_y = Inches(0.18)
-    start_x = Inches(0.25)
+    card_h = Inches(1.55)
+    gap_x = Inches(0.24)
+    gap_y = Inches(0.22)
+    start_x = Inches(0.3)
 
     for i, (label, valor, sub, cor) in enumerate(kpis):
         row = i // cols
@@ -1271,23 +1280,17 @@ def _grid_kpis(slide, kpis: list, top):
         x = start_x + col * (card_w + gap_x)
         y = top + row * (card_h + gap_y)
 
-        card = slide.shapes.add_shape(1, x, y, card_w, card_h)
-        card.fill.solid()
-        card.fill.fore_color.rgb = _rgb(CINZA_F)
-        card.line.color.rgb = _rgb(cor)
-        card.line.width = Emu(30000)
+        # card branco arredondado com sombra
+        _card(slide, x, y, card_w, card_h, fill=BRANCO, linha=CINZA_L, radius=0.07)
+        # barra de acento à esquerda
+        _ret(slide, x + Inches(0.0), y + Inches(0.22), Inches(0.09), card_h - Inches(0.44), cor)
 
-        barra = slide.shapes.add_shape(1, x, y, card_w, Inches(0.065))
-        barra.fill.solid()
-        barra.fill.fore_color.rgb = _rgb(cor)
-        barra.line.fill.background()
-
-        _txt(slide, label, x + Inches(0.14), y + Inches(0.1),
-             card_w - Inches(0.28), Inches(0.32), Pt(10), CINZA_M)
-        _txt(slide, valor, x + Inches(0.14), y + Inches(0.45),
-             card_w - Inches(0.28), Inches(0.65), Pt(24), cor, bold=True)
-        _txt(slide, sub, x + Inches(0.14), y + Inches(1.18),
-             card_w - Inches(0.28), Inches(0.28), Pt(9), CINZA_M)
+        _txt(slide, label.upper(), x + Inches(0.28), y + Inches(0.16),
+             card_w - Inches(0.45), Inches(0.3), Pt(9.5), CINZA_M, bold=True)
+        _txt(slide, valor, x + Inches(0.26), y + Inches(0.5),
+             card_w - Inches(0.45), Inches(0.66), Pt(27), cor, bold=True)
+        _txt(slide, sub, x + Inches(0.28), y + Inches(1.19),
+             card_w - Inches(0.45), Inches(0.3), Pt(9.5), CINZA_M)
 
 
 def _bloco_texto_analise(slide, linhas: list):
@@ -1385,7 +1388,7 @@ def _fig_para_png(fig) -> Optional[bytes]:
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=150, bbox_inches="tight",
+        fig.savefig(buf, format="png", dpi=200, bbox_inches="tight",
                     facecolor="white", edgecolor="none")
         plt.close(fig)
         buf.seek(0)
@@ -1399,16 +1402,17 @@ def _base_fig(titulo: str, figsize=(9, 3.8)):
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        plt.rcParams["font.family"] = "DejaVu Sans"
         fig, ax = plt.subplots(figsize=figsize)
         fig.patch.set_facecolor("white")
         ax.set_facecolor("white")
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.spines["left"].set_color("#DDD")
-        ax.spines["bottom"].set_color("#DDD")
-        ax.tick_params(labelsize=8, colors="#555")
+        for sp in ("top", "right", "left"):
+            ax.spines[sp].set_visible(False)
+        ax.spines["bottom"].set_color("#D9DCE3")
+        ax.tick_params(labelsize=9, colors="#5A6473", length=0)
         if titulo:
-            ax.set_title(titulo, fontsize=10, fontweight="bold", pad=8, color=f"#{AZUL}")
+            ax.set_title(titulo, fontsize=12, fontweight="bold", pad=12,
+                         color=f"#{AZUL}", loc="left")
         return fig, ax
     except Exception:
         return None, None
@@ -1603,7 +1607,56 @@ def _ret(slide, x, y, w, h, cor):
     return shape
 
 
-def _txt(slide, texto: str, x, y, w, h, tamanho, cor: str, bold: bool = False):
+def _sombra(shape, cor="9AA3B2", alpha=60000, blur=60000, dist=28000):
+    """Aplica sombra externa suave a um shape (via XML)."""
+    try:
+        from pptx.oxml.ns import qn
+        from lxml import etree
+        spPr = shape._element.spPr
+        antigo = spPr.find(qn("a:effectLst"))
+        if antigo is not None:
+            spPr.remove(antigo)
+        eff = etree.SubElement(spPr, qn("a:effectLst"))
+        shd = etree.SubElement(eff, qn("a:outerShdw"))
+        shd.set("blurRad", str(blur)); shd.set("dist", str(dist))
+        shd.set("dir", "5400000"); shd.set("rotWithShape", "0")
+        clr = etree.SubElement(shd, qn("a:srgbClr")); clr.set("val", cor)
+        a = etree.SubElement(clr, qn("a:alpha")); a.set("val", str(alpha))
+    except Exception:
+        pass
+
+
+def _card(slide, x, y, w, h, fill=BRANCO, linha=None, linha_w=None,
+          radius=0.06, sombra=True):
+    """Retângulo arredondado com sombra opcional (card)."""
+    from pptx.util import Emu
+    shp = slide.shapes.add_shape(5, x, y, w, h)  # 5 = ROUNDED_RECTANGLE
+    try:
+        shp.adjustments[0] = radius
+    except Exception:
+        pass
+    if fill:
+        shp.fill.solid(); shp.fill.fore_color.rgb = _rgb(fill)
+    else:
+        shp.fill.background()
+    if linha:
+        shp.line.color.rgb = _rgb(linha); shp.line.width = linha_w or Emu(9525)
+    else:
+        shp.line.fill.background()
+    if sombra:
+        _sombra(shp)
+    return shp
+
+
+def _oval(slide, x, y, w, h, cor):
+    shp = slide.shapes.add_shape(9, x, y, w, h)  # 9 = OVAL
+    shp.fill.solid(); shp.fill.fore_color.rgb = _rgb(cor)
+    shp.line.fill.background()
+    return shp
+
+
+def _txt(slide, texto: str, x, y, w, h, tamanho, cor: str, bold: bool = False,
+         align: str = "left", fonte: str = "Calibri"):
     from pptx.enum.text import PP_ALIGN
     tx = slide.shapes.add_textbox(x, y, w, h)
     tf = tx.text_frame
@@ -1613,8 +1666,10 @@ def _txt(slide, texto: str, x, y, w, h, tamanho, cor: str, bold: bool = False):
     p.font.size = tamanho
     p.font.bold = bold
     p.font.color.rgb = _rgb(cor)
+    p.alignment = {"left": PP_ALIGN.LEFT, "center": PP_ALIGN.CENTER,
+                   "right": PP_ALIGN.RIGHT}.get(align, PP_ALIGN.LEFT)
     try:
-        p.font.name = "Calibri"
+        p.font.name = fonte
     except Exception:
         pass
     return tx
