@@ -6,12 +6,14 @@ PERMISSOES = {
         "inicio", "meu_perfil", "upload",
         "cob_acordo", "cob_cobranca", "cob_performance", "cob_geral",
         "cad_dashboard", "cad_upload",
+        "inad_dashboard", "inad_upload",
         "admin_usuarios",  # só vê aba Relatórios (Cobrança) + Auditoria
     ],
     "GESTOR_CREDITO": [
         "inicio", "meu_perfil", "upload",
         "cred_indicadores", "cred_reanalises", "cred_geral", "cred_comparativo", "cred_comparativos_salvos",
         "cad_dashboard", "cad_upload",
+        "inad_dashboard", "inad_upload",
         "admin_usuarios",  # só vê aba Relatórios (Crédito) + Auditoria
     ],
     "GESTOR_FINANCEIRO": [
@@ -27,6 +29,7 @@ PERMISSOES = {
         "cred_indicadores", "cred_reanalises", "cred_geral", "cred_comparativo", "cred_comparativos_salvos",
         "fin_gastos_mes", "fin_comparativos",
         "cad_dashboard",
+        "inad_dashboard",
     ],
 }
 

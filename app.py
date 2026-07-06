@@ -60,6 +60,11 @@ PAGINAS_CADASTROS = {
     "cad_upload": "📥 Upload da Planilha",
 }
 
+PAGINAS_INADIMPLENCIA = {
+    "inad_dashboard": "📊 Dashboard Top 40",
+    "inad_upload": "📥 Upload das Planilhas",
+}
+
 
 def pagina_atual():
     return st.session_state.get("pagina", "inicio")
@@ -316,8 +321,20 @@ def sidebar_logado(usuario):
         pode_financeiro_upload = usuario.perfil in ("ADMIN", "GESTOR_FINANCEIRO")
         pode_cadastros = usuario.perfil in ("ADMIN", "GESTOR_FINANCEIRO", "GESTOR_COBRANCA", "GESTOR_CREDITO", "DIRETORIA")
         pode_cadastros_upload = usuario.perfil in ("ADMIN", "GESTOR_FINANCEIRO", "GESTOR_COBRANCA", "GESTOR_CREDITO")
+        pode_inadimplencia = usuario.perfil in ("ADMIN", "GESTOR_COBRANCA", "GESTOR_CREDITO", "DIRETORIA")
+        pode_inadimplencia_upload = usuario.perfil in ("ADMIN", "GESTOR_COBRANCA", "GESTOR_CREDITO")
         pode_upload = usuario.perfil in ("ADMIN", "GESTOR_COBRANCA", "GESTOR_CREDITO")
         eh_admin = usuario.perfil == "ADMIN"
+
+        if pode_inadimplencia:
+            st.markdown("**🔴 Inadimplência**")
+            for chave, label in PAGINAS_INADIMPLENCIA.items():
+                if chave == "inad_upload" and not pode_inadimplencia_upload:
+                    continue
+                if st.button(label, key=f"nav_{chave}", use_container_width=True):
+                    ir_para(chave)
+                    st.rerun()
+            st.markdown("")
 
         if pode_cobranca:
             st.markdown("**📊 Cobrança**")
@@ -450,6 +467,12 @@ def renderizar_pagina(usuario, pagina: str):
     elif pagina == "cad_upload":
         from src.telas.cad_upload import renderizar_cad_upload
         renderizar_cad_upload(usuario)
+    elif pagina == "inad_dashboard":
+        from src.telas.inad_dashboard import renderizar_inad_dashboard
+        renderizar_inad_dashboard(usuario)
+    elif pagina == "inad_upload":
+        from src.telas.inad_upload import renderizar_inad_upload
+        renderizar_inad_upload(usuario)
     elif pagina == "admin_usuarios":
         from src.telas.admin_usuarios import renderizar_usuarios
         renderizar_usuarios(usuario)
