@@ -33,7 +33,7 @@ CREATE INDEX IF NOT EXISTS idx_usuario_email ON usuario(email);
 -- UPLOAD MENSAL (controle de uploads)
 CREATE TABLE IF NOT EXISTS upload_mes (
     id BIGSERIAL PRIMARY KEY,
-    area TEXT NOT NULL CHECK(area IN ('COBRANCA', 'CREDITO')),
+    area TEXT NOT NULL CHECK(area IN ('COBRANCA', 'CREDITO', 'FINANCEIRO', 'CADASTROS', 'INADIMPLENCIA')),
     mes_ano TEXT NOT NULL,           -- formato 'YYYY-MM', ex: '2026-04'
     nome_arquivo TEXT NOT NULL,
     enviado_por_id BIGINT REFERENCES usuario(id),

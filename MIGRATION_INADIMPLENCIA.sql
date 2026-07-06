@@ -40,3 +40,10 @@ ALTER TABLE dados_inadimplencia DISABLE ROW LEVEL SECURITY;
 
 -- Evita PGRST205 no primeiro insert
 NOTIFY pgrst, 'reload schema';
+
+-- ------------------------------------------------------------
+-- Libera a área INADIMPLENCIA no upload_mes (corrige erro 23514)
+-- ------------------------------------------------------------
+ALTER TABLE upload_mes DROP CONSTRAINT IF EXISTS upload_mes_area_check;
+ALTER TABLE upload_mes ADD CONSTRAINT upload_mes_area_check
+  CHECK (area IN ('COBRANCA','CREDITO','FINANCEIRO','CADASTROS','INADIMPLENCIA'));
