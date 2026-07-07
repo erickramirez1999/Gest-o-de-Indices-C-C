@@ -179,6 +179,12 @@ def _tabela(top: pd.DataFrame, key: str, mes_ano: str, usuario, editavel: bool, 
         st.dataframe(disp, use_container_width=True, hide_index=True, height=620)
         return
 
+    # garante tipos coerentes p/ o data_editor (evita coluna vazia virar numérica)
+    for c in ("Situação", "Terceirizada", "Acordo"):
+        disp[c] = disp[c].fillna("").astype(str)
+    for c in ("Protesto", "Quebra"):
+        disp[c] = disp[c].fillna(False).astype(bool)
+
     st.info("Edite **Situação, Terceirizada, Acordo, Protesto e Quebra** direto na tabela e clique em salvar. "
             "O ajuste manual sobrepõe o automático e vale para este mês. Para voltar ao automático, "
             "deixe os campos iguais aos originais (Acordo em branco).")
