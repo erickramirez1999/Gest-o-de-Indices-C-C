@@ -168,7 +168,7 @@ def _tabela(top: pd.DataFrame, key: str, mes_ano: str, usuario, editavel: bool, 
             reg["Protesto"] = bool(r["tem_protesto"])
             reg["Quebra"] = bool(r["tem_quebra"])
         else:
-            selos = ("🔴 " if r["tem_protesto"] else "") + ("⚠️ " if r["tem_quebra"] else "") + ("✏️ " if r.get("editado_manual") else "")
+            selos = ("🔴 " if r["tem_protesto"] else "") + ("⚠️ " if r["tem_quebra"] else "")
             reg["Selos"] = selos.strip() or "—"
             reg["Acordo"] = reg["Acordo"] or "—"
         linhas.append(reg)

@@ -93,14 +93,22 @@ def buscar_inadimplencia(mes_ano: Optional[str] = None) -> list[dict]:
         mes_ano = refs[0]
     todos, off, page = [], 0, 1000
     while True:
-        r = sb.table(TABELA).select("*").eq("mes_ano", mes_ano).range(off, off + page - 1).execute()
+        r = sb.table(TABELA).select("*").eq("mes_ano", mes_ano).order("id").range(off, off + page - 1).execute()
         if not r.data:
             break
         todos += r.data
         if len(r.data) < page:
             break
         off += page
-    return todos
+    # dedupe defensivo por (cliente, grupo) — mantém a primeira ocorrência (ordem estável por id)
+    vistos, unicos = set(), []
+    for row in todos:
+        chave = (str(row.get("cod_cliente")), row.get("grupo"))
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        unicos.append(row)
+    return unicos
 
 
 def contar_inadimplencia() -> int:
@@ -119,19 +127,25 @@ TABELA_MANUAL = "inadimplencia_situacao_manual"
 
 
 def buscar_situacoes_manuais(mes_ano: str) -> dict:
-    """Retorna {cod: {situacao, terceirizada, acordo_texto, tem_quebra, tem_protesto}}."""
+    """Retorna {cod: {...}} pegando sempre o ajuste MAIS RECENTE (evita oscilação)."""
     sb = obter_conexao()
     try:
         r = sb.table(TABELA_MANUAL).select(
-            "cod_cliente, situacao, terceirizada, acordo_texto, tem_quebra, tem_protesto"
-        ).eq("mes_ano", mes_ano).execute()
-        return {str(x["cod_cliente"]): {
-            "situacao": x.get("situacao"),
-            "terceirizada": x.get("terceirizada"),
-            "acordo_texto": x.get("acordo_texto"),
-            "tem_quebra": x.get("tem_quebra"),
-            "tem_protesto": x.get("tem_protesto"),
-        } for x in (r.data or [])}
+            "cod_cliente, situacao, terceirizada, acordo_texto, tem_quebra, tem_protesto, editado_em"
+        ).eq("mes_ano", mes_ano).order("editado_em", desc=True).order("id", desc=True).execute()
+        out = {}
+        for x in (r.data or []):
+            cod = str(x["cod_cliente"])
+            if cod in out:      # já peguei o mais recente (ordenado desc)
+                continue
+            out[cod] = {
+                "situacao": x.get("situacao"),
+                "terceirizada": x.get("terceirizada"),
+                "acordo_texto": x.get("acordo_texto"),
+                "tem_quebra": x.get("tem_quebra"),
+                "tem_protesto": x.get("tem_protesto"),
+            }
+        return out
     except Exception:
         return {}
 
@@ -142,19 +156,21 @@ def salvar_situacao_manual(mes_ano: str, cod_cliente: str, situacao: str,
                            tem_quebra: Optional[bool] = None,
                            tem_protesto: Optional[bool] = None,
                            usuario_id=None) -> None:
-    """Grava/atualiza o ajuste manual completo de um cliente (upsert por mes_ano+cod)."""
+    """Grava o ajuste manual garantindo UMA linha por (mes, cliente): apaga e insere."""
     sb = obter_conexao()
     uid = _usuario_valido(usuario_id)
-    sb.table(TABELA_MANUAL).upsert({
+    cod = str(cod_cliente)
+    sb.table(TABELA_MANUAL).delete().eq("mes_ano", mes_ano).eq("cod_cliente", cod).execute()
+    sb.table(TABELA_MANUAL).insert({
         "mes_ano": mes_ano,
-        "cod_cliente": str(cod_cliente),
+        "cod_cliente": cod,
         "situacao": situacao,
         "terceirizada": (terceirizada or None),
         "acordo_texto": (acordo_texto or None),
         "tem_quebra": bool(tem_quebra),
         "tem_protesto": bool(tem_protesto),
         "editado_por_id": uid,
-    }, on_conflict="mes_ano,cod_cliente").execute()
+    }).execute()
 
 
 def remover_situacao_manual(mes_ano: str, cod_cliente: str) -> None:
