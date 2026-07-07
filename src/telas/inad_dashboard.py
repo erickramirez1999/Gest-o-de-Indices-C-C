@@ -30,6 +30,7 @@ COR_SIT = {
 }
 SITUACOES = ["Acordo", "Ação Judicial", "Terceirizada", "Quebra de Acordo",
              "Devolvido pela Terceirizada", "Sem Registro"]
+TERCEIRIZADAS_OPCOES = ["", "Rennovare", "Solute", "KnowHow", "Personalité", "D'Avila"]
 TOP_N = 40
 
 
@@ -55,12 +56,26 @@ def renderizar_inad_dashboard(usuario):
     for b in ("tem_quebra", "tem_protesto"):
         df[b] = df[b].fillna(False).astype(bool)
 
-    # situação efetiva = ajuste manual (se houver) senão a automática
+    # valores automáticos originais
     manuais = repo_inadimplencia.buscar_situacoes_manuais(mes_sel)
     df["cod_cliente"] = df["cod_cliente"].astype(str)
     df["situacao_auto"] = df["situacao"]
-    df["situacao"] = df.apply(lambda r: manuais.get(r["cod_cliente"], {}).get("situacao") or r["situacao_auto"], axis=1)
-    df["acordo_manual"] = df["cod_cliente"].map(lambda c: (manuais.get(c) or {}).get("acordo_texto"))
+    df["terceirizada_auto"] = df["terceirizada"] if "terceirizada" in df.columns else None
+    df["quebra_auto"] = df["tem_quebra"]
+    df["protesto_auto"] = df["tem_protesto"]
+
+    def _efetivo(r):
+        m = manuais.get(r["cod_cliente"])
+        if not m:
+            return pd.Series([r["situacao_auto"], r["terceirizada_auto"],
+                              bool(r["quebra_auto"]), bool(r["protesto_auto"]), None])
+        sit = m.get("situacao") or r["situacao_auto"]
+        terc = m.get("terceirizada") if m.get("terceirizada") is not None else r["terceirizada_auto"]
+        q = m.get("tem_quebra") if m.get("tem_quebra") is not None else r["quebra_auto"]
+        p = m.get("tem_protesto") if m.get("tem_protesto") is not None else r["protesto_auto"]
+        return pd.Series([sit, terc, bool(q), bool(p), m.get("acordo_texto")])
+
+    df[["situacao", "terceirizada", "tem_quebra", "tem_protesto", "acordo_manual"]] = df.apply(_efetivo, axis=1)
     df["editado_manual"] = df["cod_cliente"].isin(manuais.keys())
 
     editavel = getattr(usuario, "perfil", "") in ("ADMIN", "GESTOR_COBRANCA", "GESTOR_CREDITO")
@@ -134,25 +149,28 @@ def _tabela(top: pd.DataFrame, key: str, mes_ano: str, usuario, editavel: bool, 
         d = d[d["tem_protesto"]]
     d = d.sort_values("valor_em_aberto", ascending=False).reset_index(drop=True)
 
-    editar = editavel and st.checkbox("✏️ Editar situações", key=f"edit_{key}")
+    editar = editavel and st.checkbox("✏️ Editar (situação, terceirizada, acordo, selos)", key=f"edit_{key}")
 
     linhas = []
     acordos_auto = []
     for i, r in d.iterrows():
-        selos = ("🔴 " if r["tem_protesto"] else "") + ("⚠️ " if r["tem_quebra"] else "") + ("✏️ " if r.get("editado_manual") else "")
+        a_auto = _acordo_auto_str(r)
+        acordos_auto.append(a_auto)
         reg = {"#": i + 1, "Cód": r["cod_cliente"]}
         if mostrar_grupo:
             reg["Grupo"] = NOME_GRUPO.get(r["grupo"], r["grupo"])
         reg["Cliente"] = r["nome_cliente"]
         reg["Dívida"] = formatar_brl(r["valor_em_aberto"])
         reg["Situação"] = r["situacao"]
-        reg["Selos"] = selos.strip() or "—"
-        if r["situacao"] == "Terceirizada" and r.get("terceirizada"):
-            reg["Terceirizada"] = r["terceirizada"]
-        a_auto = _acordo_auto_str(r)
-        acordos_auto.append(a_auto)
-        # acordo efetivo = texto manual (se houver) senão o automático
-        reg["Acordo"] = (r.get("acordo_manual") or a_auto or "—")
+        reg["Terceirizada"] = r.get("terceirizada") or ""
+        reg["Acordo"] = (r.get("acordo_manual") or a_auto or "")
+        if editar:
+            reg["Protesto"] = bool(r["tem_protesto"])
+            reg["Quebra"] = bool(r["tem_quebra"])
+        else:
+            selos = ("🔴 " if r["tem_protesto"] else "") + ("⚠️ " if r["tem_quebra"] else "") + ("✏️ " if r.get("editado_manual") else "")
+            reg["Selos"] = selos.strip() or "—"
+            reg["Acordo"] = reg["Acordo"] or "—"
         linhas.append(reg)
     disp = pd.DataFrame(linhas)
     st.caption(f"{len(d)} clientes" + (" · filtro/busca ativo" if (filtro or so_prot or busca) else ""))
@@ -161,41 +179,65 @@ def _tabela(top: pd.DataFrame, key: str, mes_ano: str, usuario, editavel: bool, 
         st.dataframe(disp, use_container_width=True, hide_index=True, height=620)
         return
 
-    # modo edição: Situação (dropdown) e Acordo (texto) editáveis; resto travado
-    st.info("Edite **Situação** e/ou **Acordo** e clique em salvar. O ajuste manual sobrepõe o automático e vale para este mês. "
-            "Para voltar ao automático, deixe a situação no valor original e o Acordo em branco.")
-    editaveis = ("Situação", "Acordo")
+    st.info("Edite **Situação, Terceirizada, Acordo, Protesto e Quebra** direto na tabela e clique em salvar. "
+            "O ajuste manual sobrepõe o automático e vale para este mês. Para voltar ao automático, "
+            "deixe os campos iguais aos originais (Acordo em branco).")
+    editaveis = ("Situação", "Terceirizada", "Acordo", "Protesto", "Quebra")
     editado = st.data_editor(
         disp, use_container_width=True, hide_index=True, height=620,
         key=f"editor_{key}",
         disabled=[c for c in disp.columns if c not in editaveis],
         column_config={
             "Situação": st.column_config.SelectboxColumn("Situação", options=SITUACOES, required=True),
+            "Terceirizada": st.column_config.SelectboxColumn("Terceirizada", options=TERCEIRIZADAS_OPCOES),
             "Acordo": st.column_config.TextColumn("Acordo", help="Ex.: 12x mensal R$ 500,00 - Pedro 10/03/2026"),
+            "Protesto": st.column_config.CheckboxColumn("Protesto"),
+            "Quebra": st.column_config.CheckboxColumn("Quebra"),
         },
     )
     if st.button("💾 Salvar alterações", type="primary", key=f"save_{key}"):
-        cods = d["cod_cliente"].tolist()
-        autos = d["situacao_auto"].tolist()
         alterados = 0
         for i in range(len(disp)):
+            r = d.iloc[i]
+            cod = r["cod_cliente"]
             nova_sit = editado.iloc[i]["Situação"]
-            novo_ac = (editado.iloc[i]["Acordo"] or "").strip()
-            mudou = (nova_sit != disp.iloc[i]["Situação"]) or (novo_ac != str(disp.iloc[i]["Acordo"]).strip())
+            nova_terc = (editado.iloc[i]["Terceirizada"] or "").strip()
+            val_ac = editado.iloc[i]["Acordo"]
+            novo_ac = "" if pd.isna(val_ac) else str(val_ac).strip()
+            novo_prot = bool(editado.iloc[i]["Protesto"])
+            nova_queb = bool(editado.iloc[i]["Quebra"])
+
+            # valores automáticos originais desta linha
+            auto_sit = r["situacao_auto"]
+            auto_terc = (r["terceirizada_auto"] or "") if r["terceirizada_auto"] is not None else ""
+            auto_ac = (acordos_auto[i] or "").strip()
+            auto_prot = bool(r["protesto_auto"])
+            auto_queb = bool(r["quebra_auto"])
+
+            igual_auto = (nova_sit == auto_sit and nova_terc == auto_terc
+                          and novo_ac in ("", "—", auto_ac) and novo_prot == auto_prot and nova_queb == auto_queb)
+            # detecta se houve mudança em relação ao que estava exibido
+            mostrado_ac = "" if pd.isna(disp.iloc[i]["Acordo"]) else str(disp.iloc[i]["Acordo"]).strip()
+            mudou = (nova_sit != disp.iloc[i]["Situação"]
+                     or nova_terc != str(disp.iloc[i]["Terceirizada"]).strip()
+                     or novo_ac != (mostrado_ac if mostrado_ac != "—" else "")
+                     or novo_prot != bool(disp.iloc[i]["Protesto"])
+                     or nova_queb != bool(disp.iloc[i]["Quebra"]))
             if not mudou:
                 continue
-            # acordo textual só é "manual" se difere do automático e não é vazio/—
-            ac_manual = novo_ac if novo_ac not in ("", "—", (acordos_auto[i] or "").strip()) else None
             try:
-                if nova_sit == autos[i] and ac_manual is None:
-                    repo_inadimplencia.remover_situacao_manual(mes_ano, cods[i])
+                if igual_auto:
+                    repo_inadimplencia.remover_situacao_manual(mes_ano, cod)
                 else:
+                    ac_manual = novo_ac if novo_ac not in ("", "—", auto_ac) else None
                     repo_inadimplencia.salvar_situacao_manual(
-                        mes_ano, cods[i], nova_sit, acordo_texto=ac_manual,
+                        mes_ano, cod, nova_sit,
+                        terceirizada=(nova_terc or None), acordo_texto=ac_manual,
+                        tem_quebra=nova_queb, tem_protesto=novo_prot,
                         usuario_id=getattr(usuario, "id", None))
                 alterados += 1
             except Exception as e:
-                st.error(f"Erro ao salvar {cods[i]}: {repr(e)[:200]}")
+                st.error(f"Erro ao salvar {cod}: {repr(e)[:200]}")
                 st.stop()
         if alterados:
             st.success(f"✓ {alterados} cliente(s) atualizado(s).")

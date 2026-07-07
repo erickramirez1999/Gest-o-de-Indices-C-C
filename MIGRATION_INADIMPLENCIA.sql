@@ -68,3 +68,9 @@ NOTIFY pgrst, 'reload schema';
 -- Campo para editar o texto do acordo manualmente
 ALTER TABLE inadimplencia_situacao_manual ADD COLUMN IF NOT EXISTS acordo_texto TEXT;
 NOTIFY pgrst, 'reload schema';
+
+-- Override completo: terceirizada e selos (quebra/protesto) editáveis à mão
+ALTER TABLE inadimplencia_situacao_manual ADD COLUMN IF NOT EXISTS terceirizada TEXT;
+ALTER TABLE inadimplencia_situacao_manual ADD COLUMN IF NOT EXISTS tem_quebra BOOLEAN;
+ALTER TABLE inadimplencia_situacao_manual ADD COLUMN IF NOT EXISTS tem_protesto BOOLEAN;
+NOTIFY pgrst, 'reload schema';

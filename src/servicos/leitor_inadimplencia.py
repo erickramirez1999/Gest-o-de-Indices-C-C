@@ -243,6 +243,7 @@ def _classificar_titulo(hist: str) -> dict:
             holder = "JUR"; acordo_nos = False
         elif tp == "DV":
             holder = "NOS"
+            acordo_nos = False  # devolução/DV depois do acordo cancela o acordo
         elif tp == "ACORDO" and holder == "NOS":
             acordo_nos = True
 

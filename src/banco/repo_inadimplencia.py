@@ -119,26 +119,40 @@ TABELA_MANUAL = "inadimplencia_situacao_manual"
 
 
 def buscar_situacoes_manuais(mes_ano: str) -> dict:
-    """Retorna {cod_cliente: {"situacao":..., "acordo_texto":...}} dos ajustes do mês."""
+    """Retorna {cod: {situacao, terceirizada, acordo_texto, tem_quebra, tem_protesto}}."""
     sb = obter_conexao()
     try:
-        r = sb.table(TABELA_MANUAL).select("cod_cliente, situacao, acordo_texto").eq("mes_ano", mes_ano).execute()
-        return {str(x["cod_cliente"]): {"situacao": x["situacao"], "acordo_texto": x.get("acordo_texto")}
-                for x in (r.data or [])}
+        r = sb.table(TABELA_MANUAL).select(
+            "cod_cliente, situacao, terceirizada, acordo_texto, tem_quebra, tem_protesto"
+        ).eq("mes_ano", mes_ano).execute()
+        return {str(x["cod_cliente"]): {
+            "situacao": x.get("situacao"),
+            "terceirizada": x.get("terceirizada"),
+            "acordo_texto": x.get("acordo_texto"),
+            "tem_quebra": x.get("tem_quebra"),
+            "tem_protesto": x.get("tem_protesto"),
+        } for x in (r.data or [])}
     except Exception:
         return {}
 
 
 def salvar_situacao_manual(mes_ano: str, cod_cliente: str, situacao: str,
-                           acordo_texto: Optional[str] = None, usuario_id=None) -> None:
-    """Grava/atualiza o ajuste manual de um cliente (upsert por mes_ano+cod_cliente)."""
+                           terceirizada: Optional[str] = None,
+                           acordo_texto: Optional[str] = None,
+                           tem_quebra: Optional[bool] = None,
+                           tem_protesto: Optional[bool] = None,
+                           usuario_id=None) -> None:
+    """Grava/atualiza o ajuste manual completo de um cliente (upsert por mes_ano+cod)."""
     sb = obter_conexao()
     uid = _usuario_valido(usuario_id)
     sb.table(TABELA_MANUAL).upsert({
         "mes_ano": mes_ano,
         "cod_cliente": str(cod_cliente),
         "situacao": situacao,
+        "terceirizada": (terceirizada or None),
         "acordo_texto": (acordo_texto or None),
+        "tem_quebra": bool(tem_quebra),
+        "tem_protesto": bool(tem_protesto),
         "editado_por_id": uid,
     }, on_conflict="mes_ano,cod_cliente").execute()
 
