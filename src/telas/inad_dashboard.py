@@ -156,30 +156,25 @@ def _view(g: pd.DataFrame, grupo: str, key: str):
 
 
 def _view_geral(df: pd.DataFrame, key: str):
-    # consolida por cliente (soma empresas); situação/flags do cliente
-    ag = df.groupby("cod_cliente").agg(
-        nome_cliente=("nome_cliente", "first"),
-        valor_em_aberto=("valor_em_aberto", "sum"),
-        situacao=("situacao", "first"),
-        terceirizada=("terceirizada", "first"),
-        tem_quebra=("tem_quebra", "any"),
-        tem_protesto=("tem_protesto", "any"),
-        acordo_parcelas=("acordo_parcelas", "first"),
-        acordo_periodicidade=("acordo_periodicidade", "first"),
-        acordo_valor_parcela=("acordo_valor_parcela", "first"),
-        grupo=("grupo", lambda s: " + ".join(sorted({NOME_GRUPO.get(x, x) for x in s}))),
-    ).reset_index().sort_values("valor_em_aberto", ascending=False).reset_index(drop=True)
+    # Geral = Top 40 de cada grupo juntos (80 clientes). Fecha com as abas.
+    top_pisa = df[df["grupo"] == "PISA"].sort_values("valor_em_aberto", ascending=False).head(TOP_N)
+    top_kt = df[df["grupo"] == "KING_TRIO"].sort_values("valor_em_aberto", ascending=False).head(TOP_N)
+    base = pd.concat([top_pisa, top_kt], ignore_index=True)
 
-    total = ag["valor_em_aberto"].sum()
-    top = ag.head(TOP_N)
+    tot_pisa = top_pisa["valor_em_aberto"].sum()
+    tot_kt = top_kt["valor_em_aberto"].sum()
+    total = tot_pisa + tot_kt
+
     c = st.columns(3)
-    c[0].markdown(card_kpi("Dívida total (Geral)", formatar_brl(total), f"{len(ag)} clientes", AZUL), unsafe_allow_html=True)
-    tot_pisa = df[df.grupo == "PISA"]["valor_em_aberto"].sum()
-    tot_kt = df[df.grupo == "KING_TRIO"]["valor_em_aberto"].sum()
-    c[1].markdown(card_kpi("PISA", formatar_brl(tot_pisa), f"{(tot_pisa/total*100 if total else 0):.0f}% do total", AZUL), unsafe_allow_html=True)
-    c[2].markdown(card_kpi("King + Trio", formatar_brl(tot_kt), f"{(tot_kt/total*100 if total else 0):.0f}% do total", AMARELO), unsafe_allow_html=True)
+    c[0].markdown(card_kpi("Dívida total (Geral)", formatar_brl(total),
+                           f"{len(base)} clientes (Top 40 de cada)", AZUL), unsafe_allow_html=True)
+    c[1].markdown(card_kpi("PISA", formatar_brl(tot_pisa),
+                           f"{(tot_pisa/total*100 if total else 0):.0f}% · {len(top_pisa)} clientes", AZUL), unsafe_allow_html=True)
+    c[2].markdown(card_kpi("King + Trio", formatar_brl(tot_kt),
+                           f"{(tot_kt/total*100 if total else 0):.0f}% · {len(top_kt)} clientes", AMARELO), unsafe_allow_html=True)
+
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("**Dívida por situação (Top 40 Geral)**")
-    _grafico_situacao(top)
-    st.markdown(f"**Top {TOP_N} — Geral**")
-    _tabela(top, key, mostrar_grupo=True)
+    st.markdown("**Dívida por situação (Top 40 de cada grupo)**")
+    _grafico_situacao(base)
+    st.markdown(f"**Top {TOP_N} de cada grupo — {len(base)} clientes**")
+    _tabela(base.sort_values("valor_em_aberto", ascending=False), key, mostrar_grupo=True)
