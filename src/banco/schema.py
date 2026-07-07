@@ -281,6 +281,7 @@ CREATE TABLE IF NOT EXISTS inadimplencia_situacao_manual (
     mes_ano TEXT NOT NULL,
     cod_cliente TEXT NOT NULL,
     situacao TEXT NOT NULL,
+    acordo_texto TEXT,
     editado_por_id BIGINT REFERENCES usuario(id),
     editado_em TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (mes_ano, cod_cliente)

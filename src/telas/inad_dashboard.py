@@ -59,7 +59,8 @@ def renderizar_inad_dashboard(usuario):
     manuais = repo_inadimplencia.buscar_situacoes_manuais(mes_sel)
     df["cod_cliente"] = df["cod_cliente"].astype(str)
     df["situacao_auto"] = df["situacao"]
-    df["situacao"] = df.apply(lambda r: manuais.get(r["cod_cliente"], r["situacao_auto"]), axis=1)
+    df["situacao"] = df.apply(lambda r: manuais.get(r["cod_cliente"], {}).get("situacao") or r["situacao_auto"], axis=1)
+    df["acordo_manual"] = df["cod_cliente"].map(lambda c: (manuais.get(c) or {}).get("acordo_texto"))
     df["editado_manual"] = df["cod_cliente"].isin(manuais.keys())
 
     editavel = getattr(usuario, "perfil", "") in ("ADMIN", "GESTOR_COBRANCA", "GESTOR_CREDITO")
@@ -136,6 +137,7 @@ def _tabela(top: pd.DataFrame, key: str, mes_ano: str, usuario, editavel: bool, 
     editar = editavel and st.checkbox("✏️ Editar situações", key=f"edit_{key}")
 
     linhas = []
+    acordos_auto = []
     for i, r in d.iterrows():
         selos = ("🔴 " if r["tem_protesto"] else "") + ("⚠️ " if r["tem_quebra"] else "") + ("✏️ " if r.get("editado_manual") else "")
         reg = {"#": i + 1, "Cód": r["cod_cliente"]}
@@ -147,12 +149,10 @@ def _tabela(top: pd.DataFrame, key: str, mes_ano: str, usuario, editavel: bool, 
         reg["Selos"] = selos.strip() or "—"
         if r["situacao"] == "Terceirizada" and r.get("terceirizada"):
             reg["Terceirizada"] = r["terceirizada"]
-        if r["situacao"] == "Acordo" and pd.notna(r.get("acordo_parcelas")):
-            per = r.get("acordo_periodicidade") or ""
-            vp = f" R$ {r['acordo_valor_parcela']:,.2f}" if pd.notna(r.get("acordo_valor_parcela")) else ""
-            reg["Acordo"] = f"{int(r['acordo_parcelas'])}x {per}{vp}".strip()
-        else:
-            reg["Acordo"] = "—"
+        a_auto = _acordo_auto_str(r)
+        acordos_auto.append(a_auto)
+        # acordo efetivo = texto manual (se houver) senão o automático
+        reg["Acordo"] = (r.get("acordo_manual") or a_auto or "—")
         linhas.append(reg)
     disp = pd.DataFrame(linhas)
     st.caption(f"{len(d)} clientes" + (" · filtro/busca ativo" if (filtro or so_prot or busca) else ""))
@@ -161,35 +161,56 @@ def _tabela(top: pd.DataFrame, key: str, mes_ano: str, usuario, editavel: bool, 
         st.dataframe(disp, use_container_width=True, hide_index=True, height=620)
         return
 
-    # modo edição: Situação vira dropdown; demais colunas travadas
-    st.info("Altere a coluna **Situação** e clique em salvar. O ajuste manual sobrepõe a classificação automática e vale para este mês.")
+    # modo edição: Situação (dropdown) e Acordo (texto) editáveis; resto travado
+    st.info("Edite **Situação** e/ou **Acordo** e clique em salvar. O ajuste manual sobrepõe o automático e vale para este mês. "
+            "Para voltar ao automático, deixe a situação no valor original e o Acordo em branco.")
+    editaveis = ("Situação", "Acordo")
     editado = st.data_editor(
         disp, use_container_width=True, hide_index=True, height=620,
         key=f"editor_{key}",
-        disabled=[c for c in disp.columns if c != "Situação"],
-        column_config={"Situação": st.column_config.SelectboxColumn("Situação", options=SITUACOES, required=True)},
+        disabled=[c for c in disp.columns if c not in editaveis],
+        column_config={
+            "Situação": st.column_config.SelectboxColumn("Situação", options=SITUACOES, required=True),
+            "Acordo": st.column_config.TextColumn("Acordo", help="Ex.: 12x mensal R$ 500,00 - Pedro 10/03/2026"),
+        },
     )
-    if st.button("💾 Salvar situações alteradas", type="primary", key=f"save_{key}"):
+    if st.button("💾 Salvar alterações", type="primary", key=f"save_{key}"):
         cods = d["cod_cliente"].tolist()
         autos = d["situacao_auto"].tolist()
         alterados = 0
         for i in range(len(disp)):
-            nova = editado.iloc[i]["Situação"]
-            if nova != disp.iloc[i]["Situação"]:
-                try:
-                    if nova == autos[i]:
-                        repo_inadimplencia.remover_situacao_manual(mes_ano, cods[i])
-                    else:
-                        repo_inadimplencia.salvar_situacao_manual(mes_ano, cods[i], nova, getattr(usuario, "id", None))
-                    alterados += 1
-                except Exception as e:
-                    st.error(f"Erro ao salvar {cods[i]}: {repr(e)[:200]}")
-                    st.stop()
+            nova_sit = editado.iloc[i]["Situação"]
+            novo_ac = (editado.iloc[i]["Acordo"] or "").strip()
+            mudou = (nova_sit != disp.iloc[i]["Situação"]) or (novo_ac != str(disp.iloc[i]["Acordo"]).strip())
+            if not mudou:
+                continue
+            # acordo textual só é "manual" se difere do automático e não é vazio/—
+            ac_manual = novo_ac if novo_ac not in ("", "—", (acordos_auto[i] or "").strip()) else None
+            try:
+                if nova_sit == autos[i] and ac_manual is None:
+                    repo_inadimplencia.remover_situacao_manual(mes_ano, cods[i])
+                else:
+                    repo_inadimplencia.salvar_situacao_manual(
+                        mes_ano, cods[i], nova_sit, acordo_texto=ac_manual,
+                        usuario_id=getattr(usuario, "id", None))
+                alterados += 1
+            except Exception as e:
+                st.error(f"Erro ao salvar {cods[i]}: {repr(e)[:200]}")
+                st.stop()
         if alterados:
-            st.success(f"✓ {alterados} situação(ões) atualizada(s).")
+            st.success(f"✓ {alterados} cliente(s) atualizado(s).")
             st.rerun()
         else:
             st.info("Nenhuma alteração para salvar.")
+
+
+def _acordo_auto_str(r) -> str:
+    if r.get("situacao_auto") == "Acordo" and pd.notna(r.get("acordo_parcelas")):
+        per = r.get("acordo_periodicidade") or ""
+        vp = f" R$ {r['acordo_valor_parcela']:,.2f}" if pd.notna(r.get("acordo_valor_parcela")) else ""
+        resp = f" - {r['acordo_responsavel']}" if r.get("acordo_responsavel") else ""
+        return f"{int(r['acordo_parcelas'])}x {per}{vp}{resp}".strip()
+    return ""
 
 
 def _view(g: pd.DataFrame, grupo: str, key: str, mes_ano: str, usuario, editavel: bool):

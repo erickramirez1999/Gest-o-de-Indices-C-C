@@ -119,16 +119,18 @@ TABELA_MANUAL = "inadimplencia_situacao_manual"
 
 
 def buscar_situacoes_manuais(mes_ano: str) -> dict:
-    """Retorna {cod_cliente: situacao} com os ajustes manuais do mês."""
+    """Retorna {cod_cliente: {"situacao":..., "acordo_texto":...}} dos ajustes do mês."""
     sb = obter_conexao()
     try:
-        r = sb.table(TABELA_MANUAL).select("cod_cliente, situacao").eq("mes_ano", mes_ano).execute()
-        return {str(x["cod_cliente"]): x["situacao"] for x in (r.data or [])}
+        r = sb.table(TABELA_MANUAL).select("cod_cliente, situacao, acordo_texto").eq("mes_ano", mes_ano).execute()
+        return {str(x["cod_cliente"]): {"situacao": x["situacao"], "acordo_texto": x.get("acordo_texto")}
+                for x in (r.data or [])}
     except Exception:
         return {}
 
 
-def salvar_situacao_manual(mes_ano: str, cod_cliente: str, situacao: str, usuario_id=None) -> None:
+def salvar_situacao_manual(mes_ano: str, cod_cliente: str, situacao: str,
+                           acordo_texto: Optional[str] = None, usuario_id=None) -> None:
     """Grava/atualiza o ajuste manual de um cliente (upsert por mes_ano+cod_cliente)."""
     sb = obter_conexao()
     uid = _usuario_valido(usuario_id)
@@ -136,6 +138,7 @@ def salvar_situacao_manual(mes_ano: str, cod_cliente: str, situacao: str, usuari
         "mes_ano": mes_ano,
         "cod_cliente": str(cod_cliente),
         "situacao": situacao,
+        "acordo_texto": (acordo_texto or None),
         "editado_por_id": uid,
     }, on_conflict="mes_ano,cod_cliente").execute()
 

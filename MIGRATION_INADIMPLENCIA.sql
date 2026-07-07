@@ -64,3 +64,7 @@ CREATE INDEX IF NOT EXISTS idx_inad_man_mes ON inadimplencia_situacao_manual(mes
 
 ALTER TABLE inadimplencia_situacao_manual DISABLE ROW LEVEL SECURITY;
 NOTIFY pgrst, 'reload schema';
+
+-- Campo para editar o texto do acordo manualmente
+ALTER TABLE inadimplencia_situacao_manual ADD COLUMN IF NOT EXISTS acordo_texto TEXT;
+NOTIFY pgrst, 'reload schema';
