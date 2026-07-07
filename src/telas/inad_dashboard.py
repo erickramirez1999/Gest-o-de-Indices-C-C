@@ -55,13 +55,22 @@ def renderizar_inad_dashboard(usuario):
     for b in ("tem_quebra", "tem_protesto"):
         df[b] = df[b].fillna(False).astype(bool)
 
+    # situação efetiva = ajuste manual (se houver) senão a automática
+    manuais = repo_inadimplencia.buscar_situacoes_manuais(mes_sel)
+    df["cod_cliente"] = df["cod_cliente"].astype(str)
+    df["situacao_auto"] = df["situacao"]
+    df["situacao"] = df.apply(lambda r: manuais.get(r["cod_cliente"], r["situacao_auto"]), axis=1)
+    df["editado_manual"] = df["cod_cliente"].isin(manuais.keys())
+
+    editavel = getattr(usuario, "perfil", "") in ("ADMIN", "GESTOR_COBRANCA", "GESTOR_CREDITO")
+
     aba_kt, aba_pisa, aba_geral = st.tabs(["🔺 King + Trio", "🏢 PISA", "📊 Geral"])
     with aba_kt:
-        _view(df[df["grupo"] == "KING_TRIO"].copy(), "KING_TRIO", key="kt")
+        _view(df[df["grupo"] == "KING_TRIO"].copy(), "KING_TRIO", "kt", mes_sel, usuario, editavel)
     with aba_pisa:
-        _view(df[df["grupo"] == "PISA"].copy(), "PISA", key="pisa")
+        _view(df[df["grupo"] == "PISA"].copy(), "PISA", "pisa", mes_sel, usuario, editavel)
     with aba_geral:
-        _view_geral(df, key="geral")
+        _view_geral(df, "geral", mes_sel, usuario, editavel)
 
 
 # ============================================================
@@ -108,28 +117,36 @@ def _grafico_situacao(top: pd.DataFrame):
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 
-def _tabela(top: pd.DataFrame, key: str, mostrar_grupo=False):
+def _tabela(top: pd.DataFrame, key: str, mes_ano: str, usuario, editavel: bool, mostrar_grupo=False):
+    busca = st.text_input("🔎 Buscar cliente (nome ou código)", key=f"busca_{key}",
+                          placeholder="Digite parte do nome ou o código do parceiro")
     filtro = st.multiselect("Filtrar por situação", SITUACOES, default=[], key=f"filtro_{key}")
     so_prot = st.checkbox("Somente protestados 🔴", key=f"prot_{key}")
     d = top.copy()
+    if busca:
+        b = busca.strip().lower()
+        d = d[d["nome_cliente"].astype(str).str.lower().str.contains(b, na=False)
+              | d["cod_cliente"].astype(str).str.contains(b, na=False)]
     if filtro:
         d = d[d["situacao"].isin(filtro)]
     if so_prot:
         d = d[d["tem_protesto"]]
     d = d.sort_values("valor_em_aberto", ascending=False).reset_index(drop=True)
 
+    editar = editavel and st.checkbox("✏️ Editar situações", key=f"edit_{key}")
+
     linhas = []
     for i, r in d.iterrows():
-        selos = ("🔴 " if r["tem_protesto"] else "") + ("⚠️ " if r["tem_quebra"] else "")
-        reg = {"#": i + 1}
+        selos = ("🔴 " if r["tem_protesto"] else "") + ("⚠️ " if r["tem_quebra"] else "") + ("✏️ " if r.get("editado_manual") else "")
+        reg = {"#": i + 1, "Cód": r["cod_cliente"]}
         if mostrar_grupo:
             reg["Grupo"] = NOME_GRUPO.get(r["grupo"], r["grupo"])
         reg["Cliente"] = r["nome_cliente"]
         reg["Dívida"] = formatar_brl(r["valor_em_aberto"])
         reg["Situação"] = r["situacao"]
-        if r["situacao"] == "Terceirizada" and r.get("terceirizada"):
-            reg["Situação"] += f" ({r['terceirizada']})"
         reg["Selos"] = selos.strip() or "—"
+        if r["situacao"] == "Terceirizada" and r.get("terceirizada"):
+            reg["Terceirizada"] = r["terceirizada"]
         if r["situacao"] == "Acordo" and pd.notna(r.get("acordo_parcelas")):
             per = r.get("acordo_periodicidade") or ""
             vp = f" R$ {r['acordo_valor_parcela']:,.2f}" if pd.notna(r.get("acordo_valor_parcela")) else ""
@@ -137,11 +154,45 @@ def _tabela(top: pd.DataFrame, key: str, mostrar_grupo=False):
         else:
             reg["Acordo"] = "—"
         linhas.append(reg)
-    st.caption(f"{len(d)} clientes" + (" · filtro ativo" if (filtro or so_prot) else ""))
-    st.dataframe(pd.DataFrame(linhas), use_container_width=True, hide_index=True, height=620)
+    disp = pd.DataFrame(linhas)
+    st.caption(f"{len(d)} clientes" + (" · filtro/busca ativo" if (filtro or so_prot or busca) else ""))
+
+    if not editar:
+        st.dataframe(disp, use_container_width=True, hide_index=True, height=620)
+        return
+
+    # modo edição: Situação vira dropdown; demais colunas travadas
+    st.info("Altere a coluna **Situação** e clique em salvar. O ajuste manual sobrepõe a classificação automática e vale para este mês.")
+    editado = st.data_editor(
+        disp, use_container_width=True, hide_index=True, height=620,
+        key=f"editor_{key}",
+        disabled=[c for c in disp.columns if c != "Situação"],
+        column_config={"Situação": st.column_config.SelectboxColumn("Situação", options=SITUACOES, required=True)},
+    )
+    if st.button("💾 Salvar situações alteradas", type="primary", key=f"save_{key}"):
+        cods = d["cod_cliente"].tolist()
+        autos = d["situacao_auto"].tolist()
+        alterados = 0
+        for i in range(len(disp)):
+            nova = editado.iloc[i]["Situação"]
+            if nova != disp.iloc[i]["Situação"]:
+                try:
+                    if nova == autos[i]:
+                        repo_inadimplencia.remover_situacao_manual(mes_ano, cods[i])
+                    else:
+                        repo_inadimplencia.salvar_situacao_manual(mes_ano, cods[i], nova, getattr(usuario, "id", None))
+                    alterados += 1
+                except Exception as e:
+                    st.error(f"Erro ao salvar {cods[i]}: {repr(e)[:200]}")
+                    st.stop()
+        if alterados:
+            st.success(f"✓ {alterados} situação(ões) atualizada(s).")
+            st.rerun()
+        else:
+            st.info("Nenhuma alteração para salvar.")
 
 
-def _view(g: pd.DataFrame, grupo: str, key: str):
+def _view(g: pd.DataFrame, grupo: str, key: str, mes_ano: str, usuario, editavel: bool):
     if g.empty:
         st.info(f"Sem dados para {NOME_GRUPO.get(grupo, grupo)}.")
         return
@@ -152,10 +203,10 @@ def _view(g: pd.DataFrame, grupo: str, key: str):
     st.markdown("**Dívida por situação (Top 40)**")
     _grafico_situacao(g.head(TOP_N))
     st.markdown(f"**Top {TOP_N} — {NOME_GRUPO.get(grupo, grupo)}**")
-    _tabela(g.head(TOP_N), key)
+    _tabela(g.head(TOP_N), key, mes_ano, usuario, editavel)
 
 
-def _view_geral(df: pd.DataFrame, key: str):
+def _view_geral(df: pd.DataFrame, key: str, mes_ano: str, usuario, editavel: bool):
     # Geral = Top 40 de cada grupo juntos (80 clientes). Fecha com as abas.
     top_pisa = df[df["grupo"] == "PISA"].sort_values("valor_em_aberto", ascending=False).head(TOP_N)
     top_kt = df[df["grupo"] == "KING_TRIO"].sort_values("valor_em_aberto", ascending=False).head(TOP_N)
@@ -177,4 +228,4 @@ def _view_geral(df: pd.DataFrame, key: str):
     st.markdown("**Dívida por situação (Top 40 de cada grupo)**")
     _grafico_situacao(base)
     st.markdown(f"**Top {TOP_N} de cada grupo — {len(base)} clientes**")
-    _tabela(base.sort_values("valor_em_aberto", ascending=False), key, mostrar_grupo=True)
+    _tabela(base.sort_values("valor_em_aberto", ascending=False), key, mes_ano, usuario, editavel, mostrar_grupo=True)

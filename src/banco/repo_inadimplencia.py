@@ -109,3 +109,38 @@ def contar_inadimplencia() -> int:
         return r.count or 0
     except Exception:
         return 0
+
+
+# ============================================================
+# SITUAÇÃO MANUAL (sobrepõe a classificação automática)
+# ============================================================
+
+TABELA_MANUAL = "inadimplencia_situacao_manual"
+
+
+def buscar_situacoes_manuais(mes_ano: str) -> dict:
+    """Retorna {cod_cliente: situacao} com os ajustes manuais do mês."""
+    sb = obter_conexao()
+    try:
+        r = sb.table(TABELA_MANUAL).select("cod_cliente, situacao").eq("mes_ano", mes_ano).execute()
+        return {str(x["cod_cliente"]): x["situacao"] for x in (r.data or [])}
+    except Exception:
+        return {}
+
+
+def salvar_situacao_manual(mes_ano: str, cod_cliente: str, situacao: str, usuario_id=None) -> None:
+    """Grava/atualiza o ajuste manual de um cliente (upsert por mes_ano+cod_cliente)."""
+    sb = obter_conexao()
+    uid = _usuario_valido(usuario_id)
+    sb.table(TABELA_MANUAL).upsert({
+        "mes_ano": mes_ano,
+        "cod_cliente": str(cod_cliente),
+        "situacao": situacao,
+        "editado_por_id": uid,
+    }, on_conflict="mes_ano,cod_cliente").execute()
+
+
+def remover_situacao_manual(mes_ano: str, cod_cliente: str) -> None:
+    """Remove o ajuste manual (volta a valer o automático)."""
+    sb = obter_conexao()
+    sb.table(TABELA_MANUAL).delete().eq("mes_ano", mes_ano).eq("cod_cliente", str(cod_cliente)).execute()

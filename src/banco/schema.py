@@ -273,4 +273,17 @@ CREATE INDEX IF NOT EXISTS idx_inad_mes ON dados_inadimplencia(mes_ano);
 CREATE INDEX IF NOT EXISTS idx_inad_grupo ON dados_inadimplencia(grupo);
 CREATE INDEX IF NOT EXISTS idx_inad_valor ON dados_inadimplencia(valor_em_aberto);
 CREATE INDEX IF NOT EXISTS idx_inad_situacao ON dados_inadimplencia(situacao);
+
+-- Ajuste MANUAL da situação por cliente/mês (sobrepõe a classificação automática).
+-- Fica em tabela separada para não se perder em re-uploads.
+CREATE TABLE IF NOT EXISTS inadimplencia_situacao_manual (
+    id BIGSERIAL PRIMARY KEY,
+    mes_ano TEXT NOT NULL,
+    cod_cliente TEXT NOT NULL,
+    situacao TEXT NOT NULL,
+    editado_por_id BIGINT REFERENCES usuario(id),
+    editado_em TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (mes_ano, cod_cliente)
+);
+CREATE INDEX IF NOT EXISTS idx_inad_man_mes ON inadimplencia_situacao_manual(mes_ano);
 """

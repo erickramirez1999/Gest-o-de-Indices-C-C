@@ -33,7 +33,8 @@ TERCEIRIZADAS = [
 ]
 RE_JURIDICO = r"ENVIAD\w*\s+AO\s+.*JUR|ENCAMINH\w*.*JUR|A[ÇC][ÃA]O\s+JUDICIAL|PROCESSO\s+JUDICIAL"
 RE_DV = r"#?-?\bDV\b|-DV|#DV|\bPD\b|DEVOLVIDO"
-RE_ACORDO = r"ACORDO|RENEG"
+# Acordo = apenas a palavra ACORDO (renegociação/reneg/prorrogação NÃO são acordo),
+# e ignorando a ocorrência dentro de "QUEBRA DE ACORDO".
 
 SIT_JUDICIAL = "Ação Judicial"
 SIT_TERC = "Terceirizada"
@@ -188,7 +189,8 @@ def _situacao_por_cliente(bytes_arq: bytes, nome: str) -> dict:
         titulos = [_classificar_titulo(h) for h in g[col_hist].astype(str)]
         # situação do cliente = prioridade entre as situações dos títulos
         sit = sorted({t["situacao"] for t in titulos}, key=lambda s: _RANK.get(s, 99))[0]
-        tem_quebra = any(t["quebra"] for t in titulos) and sit in (SIT_ACORDO, SIT_QUEBRA, SIT_DEVOLVIDO, SIT_SEM)
+        # quebra só sinaliza se NÃO há acordo ativo agora (situação atual != Acordo)
+        tem_quebra = any(t["quebra"] for t in titulos) and sit in (SIT_QUEBRA, SIT_DEVOLVIDO, SIT_SEM)
         tem_protesto = any(t["protesto"] for t in titulos)
         terceirizada = None
         if sit == SIT_TERC:
@@ -222,8 +224,12 @@ def _classificar_titulo(hist: str) -> dict:
         toks.append((m.start(), "JUR", None))
     for m in re.finditer(RE_DV, H):
         toks.append((m.start(), "DV", None))
-    for m in re.finditer(RE_ACORDO, H):
-        toks.append((m.start(), "ACORDO", None))
+    for m in re.finditer(r"ACORDO", H):
+        ini = m.start()
+        # ignora "ACORDO" que faz parte de "QUEBRA DE ACORDO"
+        if "QUEBRA DE" in H[max(0, ini - 11):ini]:
+            continue
+        toks.append((ini, "ACORDO", None))
     toks.sort(key=lambda x: x[0])
 
     holder = "NOS"
