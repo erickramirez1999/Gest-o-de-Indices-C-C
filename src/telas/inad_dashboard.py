@@ -201,11 +201,12 @@ def _tabela(top: pd.DataFrame, key: str, mes_ano: str, usuario, editavel: bool, 
             r = d.iloc[i]
             cod = r["cod_cliente"]
             nova_sit = editado.iloc[i]["Situação"]
-            nova_terc = (editado.iloc[i]["Terceirizada"] or "").strip()
+            val_terc = editado.iloc[i]["Terceirizada"]
+            nova_terc = "" if pd.isna(val_terc) else str(val_terc).strip()
             val_ac = editado.iloc[i]["Acordo"]
             novo_ac = "" if pd.isna(val_ac) else str(val_ac).strip()
-            novo_prot = bool(editado.iloc[i]["Protesto"])
-            nova_queb = bool(editado.iloc[i]["Quebra"])
+            novo_prot = bool(editado.iloc[i]["Protesto"]) if pd.notna(editado.iloc[i]["Protesto"]) else False
+            nova_queb = bool(editado.iloc[i]["Quebra"]) if pd.notna(editado.iloc[i]["Quebra"]) else False
 
             # valores automáticos originais desta linha
             auto_sit = r["situacao_auto"]
