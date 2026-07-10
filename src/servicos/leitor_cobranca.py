@@ -528,9 +528,14 @@ def _achar_aba(nomes: list[str], palavras: list[str]) -> Optional[str]:
 
 
 def _achar_col(df: pd.DataFrame, nomes: list[str]) -> Optional[str]:
-    for col in df.columns:
-        if any(n in str(col).lower() for n in nomes):
-            return col
+    cols = list(df.columns)
+    low = [str(c).lower() for c in cols]
+    # prioriza pela ORDEM DOS TERMOS buscados (não pela ordem das colunas),
+    # p.ex.: "negociador acordo" vence "negociador processo" mesmo vindo depois
+    for n in nomes:
+        for i, c in enumerate(low):
+            if n in c:
+                return cols[i]
     return None
 
 
