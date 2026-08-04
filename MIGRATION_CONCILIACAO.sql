@@ -35,3 +35,8 @@ NOTIFY pgrst, 'reload schema';
 ALTER TABLE conciliacao ADD COLUMN IF NOT EXISTS qtd_aplicacao INTEGER;
 ALTER TABLE conciliacao ADD COLUMN IF NOT EXISTS valor_aplicacao NUMERIC;
 NOTIFY pgrst, 'reload schema';
+
+-- Boleto Código de Barras separado do CobCloud
+ALTER TABLE conciliacao ADD COLUMN IF NOT EXISTS qtd_boletocb INTEGER;
+ALTER TABLE conciliacao ADD COLUMN IF NOT EXISTS valor_boletocb NUMERIC;
+NOTIFY pgrst, 'reload schema';

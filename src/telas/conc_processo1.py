@@ -10,7 +10,8 @@ from src.servicos.conciliacao import processar_conciliacao, gerar_xlsx_conciliac
 from src.utils.marca import AZUL_ESCURO
 from src.utils.formatadores import formatar_brl
 
-COR = {"QR Boleto": "#0F8C3B", "PDV": "#0071FE", "CobCloud": "#041747", "Sobrando (Monday)": "#DC3545"}
+COR = {"QR Boleto": "#0F8C3B", "PDV": "#0071FE", "CobCloud": "#041747",
+       "Boleto Cód Barras": "#0071FE", "Sobrando (Monday)": "#DC3545"}
 
 
 def renderizar_conc_processo1(usuario):

@@ -38,6 +38,7 @@ def salvar_conciliacao(data_conciliacao: str, resumo: list[dict], sobra: list[di
         "qtd_qrboleto": q("QR Boleto"), "valor_qrboleto": v("QR Boleto"),
         "qtd_pdv": q("PDV"), "valor_pdv": v("PDV"),
         "qtd_cobcloud": q("CobCloud"), "valor_cobcloud": v("CobCloud"),
+        "qtd_boletocb": q("Boleto Cód Barras"), "valor_boletocb": v("Boleto Cód Barras"),
         "qtd_sobra": q("Sobrando (Monday)"), "valor_sobra": v("Sobrando (Monday)"),
         "qtd_despesa": len(despesas), "valor_despesa": round(sum(float(d["valor"]) for d in despesas), 2),
         "qtd_aplicacao": len(aplicacoes), "valor_aplicacao": round(sum(float(a["valor"]) for a in aplicacoes), 2),

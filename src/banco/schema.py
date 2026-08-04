@@ -298,6 +298,7 @@ CREATE TABLE IF NOT EXISTS conciliacao (
     qtd_qrboleto INTEGER, valor_qrboleto NUMERIC,
     qtd_pdv INTEGER, valor_pdv NUMERIC,
     qtd_cobcloud INTEGER, valor_cobcloud NUMERIC,
+    qtd_boletocb INTEGER, valor_boletocb NUMERIC,
     qtd_sobra INTEGER, valor_sobra NUMERIC,
     qtd_despesa INTEGER, valor_despesa NUMERIC,
     qtd_aplicacao INTEGER, valor_aplicacao NUMERIC,

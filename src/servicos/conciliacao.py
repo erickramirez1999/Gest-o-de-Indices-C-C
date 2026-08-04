@@ -21,7 +21,11 @@ import pandas as pd
 QR_BOLETO = "QR Boleto"
 PDV = "PDV"
 COBCLOUD = "CobCloud"
+BOLETO_CB = "Boleto Cód Barras"
 SOBRA = "Sobrando (Monday)"
+
+ID_COBCLOUD = "3455/000554357"
+ID_BOLETO_CB = "3455/003475395"
 
 
 def processar_conciliacao(arquivos: list[tuple[bytes, str]]) -> dict:
@@ -54,9 +58,11 @@ def processar_conciliacao(arquivos: list[tuple[bytes, str]]) -> dict:
     qtd_pdv = int((base_df["cat"] == PDV).sum())
     val_pdv = round(base_df[base_df["cat"] == PDV]["valor"].sum(), 2)
 
-    # cobcloud vem do extrato (histórico com 3455/)
-    cob = extrato_df[extrato_df["historico"].astype(str).str.contains(r"3455/", na=False)]
+    # cobcloud e boleto cód barras vêm do extrato (histórico com 3455/...)
+    cob = extrato_df[extrato_df["historico"].astype(str).str.contains(ID_COBCLOUD, na=False, regex=False)]
     qtd_cob = len(cob); val_cob = round(pd.to_numeric(cob["valor"], errors="coerce").sum(), 2)
+    bcb = extrato_df[extrato_df["historico"].astype(str).str.contains(ID_BOLETO_CB, na=False, regex=False)]
+    qtd_bcb = len(bcb); val_bcb = round(pd.to_numeric(bcb["valor"], errors="coerce").sum(), 2)
 
     # pix positivo do extrato
     pix = extrato_df[
@@ -97,6 +103,7 @@ def processar_conciliacao(arquivos: list[tuple[bytes, str]]) -> dict:
         {"tipo": QR_BOLETO, "qtd": qtd_qr, "valor": val_qr},
         {"tipo": PDV, "qtd": qtd_pdv, "valor": val_pdv},
         {"tipo": COBCLOUD, "qtd": qtd_cob, "valor": val_cob},
+        {"tipo": BOLETO_CB, "qtd": qtd_bcb, "valor": val_bcb},
         {"tipo": SOBRA, "qtd": len(sobra), "valor": total_sobra},
     ]
     res["sobra"] = sorted(sobra, key=lambda s: -s["valor"])
@@ -156,8 +163,12 @@ def _classificar_id(x) -> str:
     s = str(x).strip().upper()
     if s.startswith("YKP"):
         return QR_BOLETO
-    if s.startswith("3455/"):
+    if s.startswith(ID_COBCLOUD):
         return COBCLOUD
+    if s.startswith(ID_BOLETO_CB):
+        return BOLETO_CB
+    if s.startswith("3455/"):
+        return BOLETO_CB
     if s.startswith("010"):
         return PDV
     return "SEM ID"
@@ -187,7 +198,7 @@ def gerar_xlsx_conciliacao(resumo: list[dict], sobra: list[dict], data_label: st
     from openpyxl.utils import get_column_letter
 
     AZUL = "041747"; VERM = "DC3545"; CINZA = "6C757D"
-    COR = {QR_BOLETO: "0F8C3B", PDV: "0071FE", COBCLOUD: "041747", SOBRA: "DC3545"}
+    COR = {QR_BOLETO: "0F8C3B", PDV: "0071FE", COBCLOUD: "041747", BOLETO_CB: "0071FE", SOBRA: "DC3545"}
     thin = Side(style="thin", color="D9DCE3")
 
     def F(**k): return Font(name="Arial", **k)

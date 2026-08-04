@@ -32,6 +32,7 @@ def renderizar_conc_historico(usuario):
             "QR Boleto": formatar_brl(r.get("valor_qrboleto") or 0),
             "PDV": formatar_brl(r.get("valor_pdv") or 0),
             "CobCloud": formatar_brl(r.get("valor_cobcloud") or 0),
+            "Boleto CB": formatar_brl(r.get("valor_boletocb") or 0),
             "Sobrando": formatar_brl(r.get("valor_sobra") or 0),
             "Qtd sobra": int(r.get("qtd_sobra") or 0),
         })
@@ -45,6 +46,7 @@ def renderizar_conc_historico(usuario):
         {"tipo": "QR Boleto", "qtd": int(r.get("qtd_qrboleto") or 0), "valor": float(r.get("valor_qrboleto") or 0)},
         {"tipo": "PDV", "qtd": int(r.get("qtd_pdv") or 0), "valor": float(r.get("valor_pdv") or 0)},
         {"tipo": "CobCloud", "qtd": int(r.get("qtd_cobcloud") or 0), "valor": float(r.get("valor_cobcloud") or 0)},
+        {"tipo": "Boleto Cód Barras", "qtd": int(r.get("qtd_boletocb") or 0), "valor": float(r.get("valor_boletocb") or 0)},
         {"tipo": "Sobrando (Monday)", "qtd": int(r.get("qtd_sobra") or 0), "valor": float(r.get("valor_sobra") or 0)},
     ]
     sobra_raw = repo_conciliacao.buscar_sobra(r["id"])
@@ -56,11 +58,12 @@ def renderizar_conc_historico(usuario):
     aplicacoes = sorted([{"data": a.get("data"), "historico": a.get("historico"), "valor": float(a.get("valor") or 0)}
                          for a in aplic_raw], key=lambda d: d["valor"])
 
-    cols = st.columns(6)
-    for col, x in zip(cols, resumo):
-        col.metric(x["tipo"], formatar_brl(x["valor"]), f"{x['qtd']} lçtos")
-    cols[4].metric("Despesas", formatar_brl(r.get("valor_despesa") or 0), f"{int(r.get('qtd_despesa') or 0)} saídas")
-    cols[5].metric("Aplicações", formatar_brl(r.get("valor_aplicacao") or 0), f"{int(r.get('qtd_aplicacao') or 0)} mov.")
+    metricas = [(x["tipo"], formatar_brl(x["valor"]), f"{x['qtd']} lçtos") for x in resumo]
+    metricas.append(("Despesas", formatar_brl(r.get("valor_despesa") or 0), f"{int(r.get('qtd_despesa') or 0)} saídas"))
+    metricas.append(("Aplicações", formatar_brl(r.get("valor_aplicacao") or 0), f"{int(r.get('qtd_aplicacao') or 0)} mov."))
+    cols = st.columns(len(metricas))
+    for col, (t, val, sub) in zip(cols, metricas):
+        col.metric(t, val, sub)
 
     if sobra:
         df = pd.DataFrame(sobra)
