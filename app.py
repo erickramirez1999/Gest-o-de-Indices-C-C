@@ -60,6 +60,11 @@ PAGINAS_CADASTROS = {
     "cad_upload": "📥 Upload da Planilha",
 }
 
+PAGINAS_CONCILIACAO = {
+    "conc_processo1": "🔄 Processo 1 (Diária)",
+    "conc_historico": "📚 Histórico",
+}
+
 PAGINAS_INADIMPLENCIA = {
     "inad_dashboard": "📊 Dashboard Top 40",
     "inad_upload": "📥 Upload das Planilhas",
@@ -323,8 +328,17 @@ def sidebar_logado(usuario):
         pode_cadastros_upload = usuario.perfil in ("ADMIN", "GESTOR_FINANCEIRO", "GESTOR_COBRANCA", "GESTOR_CREDITO")
         pode_inadimplencia = usuario.perfil in ("ADMIN", "GESTOR_COBRANCA", "GESTOR_CREDITO", "DIRETORIA")
         pode_inadimplencia_upload = usuario.perfil in ("ADMIN", "GESTOR_COBRANCA", "GESTOR_CREDITO")
+        pode_conciliacao = usuario.perfil in ("ADMIN", "GESTOR_FINANCEIRO", "GESTOR_COBRANCA", "DIRETORIA")
         pode_upload = usuario.perfil in ("ADMIN", "GESTOR_COBRANCA", "GESTOR_CREDITO")
         eh_admin = usuario.perfil == "ADMIN"
+
+        if pode_conciliacao:
+            st.markdown("**🔄 Conciliação**")
+            for chave, label in PAGINAS_CONCILIACAO.items():
+                if st.button(label, key=f"nav_{chave}", use_container_width=True):
+                    ir_para(chave)
+                    st.rerun()
+            st.markdown("")
 
         if pode_inadimplencia:
             st.markdown("**🔴 Inadimplência**")
@@ -467,6 +481,12 @@ def renderizar_pagina(usuario, pagina: str):
     elif pagina == "cad_upload":
         from src.telas.cad_upload import renderizar_cad_upload
         renderizar_cad_upload(usuario)
+    elif pagina == "conc_processo1":
+        from src.telas.conc_processo1 import renderizar_conc_processo1
+        renderizar_conc_processo1(usuario)
+    elif pagina == "conc_historico":
+        from src.telas.conc_historico import renderizar_conc_historico
+        renderizar_conc_historico(usuario)
     elif pagina == "inad_dashboard":
         from src.telas.inad_dashboard import renderizar_inad_dashboard
         renderizar_inad_dashboard(usuario)

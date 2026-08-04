@@ -6,6 +6,7 @@ PERMISSOES = {
         "inicio", "meu_perfil", "upload",
         "cob_acordo", "cob_cobranca", "cob_performance", "cob_geral",
         "cad_dashboard", "cad_upload",
+        "conc_processo1", "conc_historico",
         "inad_dashboard", "inad_upload",
         "admin_usuarios",  # só vê aba Relatórios (Cobrança) + Auditoria
     ],
@@ -13,6 +14,7 @@ PERMISSOES = {
         "inicio", "meu_perfil", "upload",
         "cred_indicadores", "cred_reanalises", "cred_geral", "cred_comparativo", "cred_comparativos_salvos",
         "cad_dashboard", "cad_upload",
+        "conc_processo1", "conc_historico",
         "inad_dashboard", "inad_upload",
         "admin_usuarios",  # só vê aba Relatórios (Crédito) + Auditoria
     ],
@@ -30,6 +32,7 @@ PERMISSOES = {
         "fin_gastos_mes", "fin_comparativos",
         "cad_dashboard",
         "inad_dashboard",
+        "conc_processo1", "conc_historico",
     ],
 }
 

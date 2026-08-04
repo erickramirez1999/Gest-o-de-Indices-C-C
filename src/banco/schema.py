@@ -290,4 +290,30 @@ CREATE TABLE IF NOT EXISTS inadimplencia_situacao_manual (
     UNIQUE (mes_ano, cod_cliente)
 );
 CREATE INDEX IF NOT EXISTS idx_inad_man_mes ON inadimplencia_situacao_manual(mes_ano);
+
+-- CONCILIAÇÃO DE RECEBIMENTOS (Processo 1: diária)
+CREATE TABLE IF NOT EXISTS conciliacao (
+    id BIGSERIAL PRIMARY KEY,
+    data_conciliacao DATE NOT NULL,
+    qtd_qrboleto INTEGER, valor_qrboleto NUMERIC,
+    qtd_pdv INTEGER, valor_pdv NUMERIC,
+    qtd_cobcloud INTEGER, valor_cobcloud NUMERIC,
+    qtd_sobra INTEGER, valor_sobra NUMERIC,
+    qtd_despesa INTEGER, valor_despesa NUMERIC,
+    qtd_aplicacao INTEGER, valor_aplicacao NUMERIC,
+    criado_por_id BIGINT REFERENCES usuario(id),
+    criado_em TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (data_conciliacao)
+);
+CREATE TABLE IF NOT EXISTS conciliacao_sobra (
+    id BIGSERIAL PRIMARY KEY,
+    conciliacao_id BIGINT NOT NULL REFERENCES conciliacao(id) ON DELETE CASCADE,
+    tipo TEXT DEFAULT 'SOBRA',
+    data TEXT,
+    historico TEXT,
+    valor NUMERIC
+);
+CREATE INDEX IF NOT EXISTS idx_conc_data ON conciliacao(data_conciliacao);
+CREATE INDEX IF NOT EXISTS idx_conc_sobra_fk ON conciliacao_sobra(conciliacao_id);
+
 """
