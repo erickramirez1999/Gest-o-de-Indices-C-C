@@ -299,6 +299,10 @@ CREATE TABLE IF NOT EXISTS conciliacao (
     qtd_pdv INTEGER, valor_pdv NUMERIC,
     qtd_cobcloud INTEGER, valor_cobcloud NUMERIC,
     qtd_boletocb INTEGER, valor_boletocb NUMERIC,
+    qtd_transfconta INTEGER, valor_transfconta NUMERIC,
+    qtd_ted INTEGER, valor_ted NUMERIC,
+    qtd_doc INTEGER, valor_doc NUMERIC,
+    qtd_tarifa INTEGER, valor_tarifa NUMERIC,
     qtd_sobra INTEGER, valor_sobra NUMERIC,
     qtd_despesa INTEGER, valor_despesa NUMERIC,
     qtd_aplicacao INTEGER, valor_aplicacao NUMERIC,
@@ -311,6 +315,9 @@ CREATE TABLE IF NOT EXISTS conciliacao_sobra (
     conciliacao_id BIGINT NOT NULL REFERENCES conciliacao(id) ON DELETE CASCADE,
     tipo TEXT DEFAULT 'SOBRA',
     conta INTEGER,
+    cod_parceiro TEXT,
+    nome_parceiro TEXT,
+    nota TEXT,
     data TEXT
     historico TEXT,
     valor NUMERIC

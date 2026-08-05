@@ -44,3 +44,20 @@ NOTIFY pgrst, 'reload schema';
 -- PIX ambíguos (mesmo valor de QR/PIX) — guarda quantos realmente sobram
 ALTER TABLE conciliacao_sobra ADD COLUMN IF NOT EXISTS conta INTEGER;
 NOTIFY pgrst, 'reload schema';
+
+-- Categorias separadas: Transferência entre contas, TED, DOC, Tarifas
+ALTER TABLE conciliacao ADD COLUMN IF NOT EXISTS qtd_transfconta INTEGER;
+ALTER TABLE conciliacao ADD COLUMN IF NOT EXISTS valor_transfconta NUMERIC;
+ALTER TABLE conciliacao ADD COLUMN IF NOT EXISTS qtd_ted INTEGER;
+ALTER TABLE conciliacao ADD COLUMN IF NOT EXISTS valor_ted NUMERIC;
+ALTER TABLE conciliacao ADD COLUMN IF NOT EXISTS qtd_doc INTEGER;
+ALTER TABLE conciliacao ADD COLUMN IF NOT EXISTS valor_doc NUMERIC;
+ALTER TABLE conciliacao ADD COLUMN IF NOT EXISTS qtd_tarifa INTEGER;
+ALTER TABLE conciliacao ADD COLUMN IF NOT EXISTS valor_tarifa NUMERIC;
+NOTIFY pgrst, 'reload schema';
+
+-- Identificação da origem da sobra (faturados/Monday): cód parceiro, parceiro, nota
+ALTER TABLE conciliacao_sobra ADD COLUMN IF NOT EXISTS cod_parceiro TEXT;
+ALTER TABLE conciliacao_sobra ADD COLUMN IF NOT EXISTS nome_parceiro TEXT;
+ALTER TABLE conciliacao_sobra ADD COLUMN IF NOT EXISTS nota TEXT;
+NOTIFY pgrst, 'reload schema';

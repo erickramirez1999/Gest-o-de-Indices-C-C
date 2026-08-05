@@ -1,19 +1,19 @@
 """
-Serviço de Conciliação de Recebimentos — LLE Índices.
+Serviço de Conciliação de Recebimentos — LLE Índices (Processo 1).
 
-PROCESSO 1 (conciliação diária):
-  Entradas: extrato bancário (Data/Histórico/Documento/Valor/Saldo) e base de
-  recebimentos (com "Identificador do pagamento").
-  - Classifica os automáticos: QR Boleto (YKP), PDV (010), CobCloud (3455/).
-  - CobCloud é lido do EXTRATO (histórico contém "3455/").
-  - Do EXTRATO pega os PIX RECEBIDO positivos e remove, por VALOR (um-para-um),
-    os que batem com os automáticos (QR Boleto + PDV). O que sobra vai pro Monday.
-  Saída: resumo por tipo + lista do que sobrou + total.
+Entradas: extrato bancário + base de recebimentos (com "Identificador do pagamento").
+Classifica os recebimentos/movimentos e apura o PIX que sobra (para o Monday).
+
+Resumo (totais, no topo):
+  QR Boleto, PDV, CobCloud, Boleto Cód Barras, Transferência entre contas,
+  TED, DOC, Sobrando (Monday), Despesas, Tarifas, Aplicação.
+Detalhe: apenas PIX sobrando (+ ambíguos). Despesas/Tarifas/Aplicação/
+Transferência/TED/DOC entram só como soma no resumo.
 """
 from __future__ import annotations
 import io
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from typing import Optional
 
 import pandas as pd
@@ -22,25 +22,62 @@ QR_BOLETO = "QR Boleto"
 PDV = "PDV"
 COBCLOUD = "CobCloud"
 BOLETO_CB = "Boleto Cód Barras"
+TRANSF = "Transferência entre contas"
+TED = "TED"
+DOC = "DOC"
 SOBRA = "Sobrando (Monday)"
+DESPESA = "Despesas"
+TARIFA = "Tarifas"
+APLICACAO = "Aplicação"
 
 ID_COBCLOUD = "3455/000554357"
 ID_BOLETO_CB = "3455/003475395"
 
+# ordem de exibição no resumo
+ORDEM_RESUMO = [QR_BOLETO, PDV, COBCLOUD, BOLETO_CB, TRANSF, TED, DOC,
+                SOBRA, DESPESA, TARIFA, APLICACAO]
+
+
+def _categoria_extrato(hist: str, valor: float) -> str:
+    """Categoria de uma linha do extrato (exceto QR/PDV, que vêm da base)."""
+    h = str(hist).upper()
+    if ID_COBCLOUD in h:
+        return COBCLOUD
+    if ID_BOLETO_CB in h:
+        return BOLETO_CB
+    if "PIX RECEBIDO" in h and valor > 0:
+        return "PIX"  # entra no casamento → sobrando
+    if "TRANSFERENCIA ENTRE CONTAS" in h or "TRANSF ENTRE CONTAS" in h:
+        return TRANSF
+    if re.search(r"\bTED\b", h):
+        return TED
+    if re.search(r"\bDOC\b", h):
+        return DOC
+    if "TARIFA" in h:
+        return TARIFA
+    if "APLICA" in h:
+        return APLICACAO
+    if valor < 0:
+        return DESPESA
+    return "OUTROS"
+
 
 def processar_conciliacao(arquivos: list[tuple[bytes, str]]) -> dict:
-    res = {"resumo": [], "sobra": [], "total_sobra": 0.0, "erros": [],
-           "arquivos": [], "ok": False}
+    res = {"resumo": [], "sobra": [], "sobra_ambigua": [], "total_sobra": 0.0,
+           "erros": [], "arquivos": [], "ok": False}
 
     base_df = extrato_df = None
+    faturados = []
     for bytes_arq, nome in arquivos:
         tipo = _detectar(bytes_arq, nome)
         if tipo == "BASE":
             base_df = _ler_base(bytes_arq, nome); res["arquivos"].append(f"{nome} → Base recebimentos")
         elif tipo == "EXTRATO":
             extrato_df = _ler_extrato(bytes_arq, nome); res["arquivos"].append(f"{nome} → Extrato bancário")
+        elif tipo == "FATURADOS":
+            faturados = ler_faturados(bytes_arq, nome); res["arquivos"].append(f"{nome} → Faturados (Monday)")
         else:
-            res["erros"].append(f"'{nome}': não reconhecido (esperado extrato bancário ou base com 'Identificador do pagamento').")
+            res["erros"].append(f"'{nome}': não reconhecido (extrato, base com 'Identificador do pagamento', ou faturados com 'Vlr do Desdobramento').")
 
     if base_df is None:
         res["erros"].append("Faltou a **base de recebimentos** (com 'Identificador do pagamento').")
@@ -49,89 +86,70 @@ def processar_conciliacao(arquivos: list[tuple[bytes, str]]) -> dict:
     if base_df is None or extrato_df is None:
         return res
 
-    # classifica base
+    # --- base: QR Boleto e PDV ---
     base_df["cat"] = base_df["identificador"].apply(_classificar_id)
     base_df["valor"] = pd.to_numeric(base_df["valor"], errors="coerce").round(2)
-
     qtd_qr = int((base_df["cat"] == QR_BOLETO).sum())
     val_qr = round(base_df[base_df["cat"] == QR_BOLETO]["valor"].sum(), 2)
     qtd_pdv = int((base_df["cat"] == PDV).sum())
     val_pdv = round(base_df[base_df["cat"] == PDV]["valor"].sum(), 2)
 
-    # cobcloud e boleto cód barras vêm do extrato (histórico com 3455/...)
-    cob = extrato_df[extrato_df["historico"].astype(str).str.contains(ID_COBCLOUD, na=False, regex=False)]
-    qtd_cob = len(cob); val_cob = round(pd.to_numeric(cob["valor"], errors="coerce").sum(), 2)
-    bcb = extrato_df[extrato_df["historico"].astype(str).str.contains(ID_BOLETO_CB, na=False, regex=False)]
-    qtd_bcb = len(bcb); val_bcb = round(pd.to_numeric(bcb["valor"], errors="coerce").sum(), 2)
+    # --- extrato: categorias ---
+    extrato_df["valor"] = pd.to_numeric(extrato_df["valor"], errors="coerce")
+    extrato_df["cat"] = [_categoria_extrato(h, v) for h, v in zip(extrato_df["historico"], extrato_df["valor"])]
+    tot = defaultdict(lambda: [0, 0.0])  # cat -> [qtd, soma]
+    for _, r in extrato_df.iterrows():
+        if r["cat"] in ("PIX", "OUTROS"):
+            continue
+        tot[r["cat"]][0] += 1
+        tot[r["cat"]][1] += float(r["valor"] or 0)
 
-    # pix positivo do extrato
-    pix = extrato_df[
-        extrato_df["historico"].astype(str).str.upper().str.contains("PIX RECEBIDO")
-        & (pd.to_numeric(extrato_df["valor"], errors="coerce") > 0)
-    ].copy()
+    # --- PIX positivo → casa com automáticos (QR+PDV) → sobrando ---
+    pix = extrato_df[(extrato_df["cat"] == "PIX")].copy()
     pix["valor"] = pd.to_numeric(pix["valor"], errors="coerce").round(2)
-
-    # remove por valor os automáticos (QR Boleto + PDV) da base; trata ambiguidade
-    from collections import defaultdict
     auto = [round(v, 2) for v in base_df[base_df["cat"].isin([QR_BOLETO, PDV])]["valor"].dropna().tolist()]
     auto_cont = Counter(auto)
-
     pix_por_valor = defaultdict(list)
     for _, r in pix.iterrows():
         v = round(float(r["valor"]), 2)
         pix_por_valor[v].append({"data": str(r["data"]), "historico": str(r["historico"]).strip(), "valor": v})
-
-    sobra = []            # sobrando sem ambiguidade
-    sobra_ambigua = []    # grupos: mesmo valor aparece como automático E como pix sobrando
+    sobra, sobra_ambigua = [], []
     for v, rows in pix_por_valor.items():
         a_v = auto_cont.get(v, 0)
         leftover = max(0, len(rows) - a_v)
         if leftover == 0:
-            continue                      # todos casaram com automáticos
+            continue
         if a_v == 0:
-            sobra.extend(rows)            # nenhum automático desse valor → sobra limpa
+            sobra.extend(rows)
         else:
-            # ambíguo: não dá pra saber qual pix é o automático e qual sobra
             sobra_ambigua.append({"valor": v, "conta": leftover, "candidatos": rows})
-
-    total_sobra = round(sum(s["valor"] for s in sobra)
-                        + sum(g["valor"] * g["conta"] for g in sobra_ambigua), 2)
+    total_sobra = round(sum(s["valor"] for s in sobra) + sum(g["valor"] * g["conta"] for g in sobra_ambigua), 2)
     qtd_sobra = len(sobra) + sum(g["conta"] for g in sobra_ambigua)
 
-    # SAÍDAS (Valor < 0) no extrato → separa Aplicação de Despesa
-    ext_v = pd.to_numeric(extrato_df["valor"], errors="coerce")
-    saidas = extrato_df[ext_v < 0].copy()
-    saidas["valor"] = pd.to_numeric(saidas["valor"], errors="coerce").round(2)
-    lista = [{"data": str(r["data"]), "historico": str(r["historico"]).strip(),
-              "valor": round(float(r["valor"]), 2)} for _, r in saidas.iterrows()]
+    # identifica a origem (cód parceiro / parceiro / nota) do que sobrou — continua sendo sobra
+    if faturados:
+        _identificar_sobra(sobra, sobra_ambigua, faturados)
 
-    def _eh_aplicacao(h):
-        return "APLICA" in str(h).upper()  # APLICAÇÃO / APLICACAO
-
-    aplicacoes = sorted([x for x in lista if _eh_aplicacao(x["historico"])], key=lambda d: d["valor"])
-    despesas = sorted([x for x in lista if not _eh_aplicacao(x["historico"])], key=lambda d: d["valor"])
-    total_despesa = round(sum(d["valor"] for d in despesas), 2)
-    total_aplicacao = round(sum(d["valor"] for d in aplicacoes), 2)
+    def cat_tot(nome):
+        return {"tipo": nome, "qtd": int(tot[nome][0]), "valor": round(tot[nome][1], 2)}
 
     res["resumo"] = [
         {"tipo": QR_BOLETO, "qtd": qtd_qr, "valor": val_qr},
         {"tipo": PDV, "qtd": qtd_pdv, "valor": val_pdv},
-        {"tipo": COBCLOUD, "qtd": qtd_cob, "valor": val_cob},
-        {"tipo": BOLETO_CB, "qtd": qtd_bcb, "valor": val_bcb},
+        cat_tot(COBCLOUD), cat_tot(BOLETO_CB), cat_tot(TRANSF), cat_tot(TED), cat_tot(DOC),
         {"tipo": SOBRA, "qtd": qtd_sobra, "valor": total_sobra},
+        cat_tot(DESPESA), cat_tot(TARIFA), cat_tot(APLICACAO),
     ]
     res["sobra"] = sorted(sobra, key=lambda s: -s["valor"])
     res["sobra_ambigua"] = sorted(sobra_ambigua, key=lambda g: -g["valor"])
     res["total_sobra"] = total_sobra
-    res["despesas"] = despesas
-    res["total_despesa"] = total_despesa
-    res["aplicacoes"] = aplicacoes
-    res["total_aplicacao"] = total_aplicacao
     res["ok"] = True
     return res
 
 
-# ---------- detecção e leitura ----------
+# ============================================================
+# DETECÇÃO E LEITURA
+# ============================================================
 
 def _detectar(bytes_arq: bytes, nome: str) -> str:
     try:
@@ -141,6 +159,8 @@ def _detectar(bytes_arq: bytes, nome: str) -> str:
     textos = " ".join(str(v).upper() for _, row in amostra.iterrows() for v in row.values if pd.notna(v))
     if "IDENTIFICADOR DO PAGAMENTO" in textos:
         return "BASE"
+    if "VLR DO DESDOBRAMENTO" in textos or ("DESDOBRAMENTO" in textos and "PARCEIRO" in textos):
+        return "FATURADOS"
     if "SALDO" in textos and ("HISTÓRICO" in textos or "HISTORICO" in textos):
         return "EXTRATO"
     if "AGENCIA" in textos and "CONTA" in textos:
@@ -158,7 +178,6 @@ def _ler_base(bytes_arq: bytes, nome: str) -> pd.DataFrame:
 
 
 def _ler_extrato(bytes_arq: bytes, nome: str) -> pd.DataFrame:
-    # cabeçalho costuma estar na linha 2 (0-based)
     raw = pd.read_excel(io.BytesIO(bytes_arq), sheet_name=0, header=None)
     hdr = 0
     for i in range(min(6, len(raw))):
@@ -180,9 +199,7 @@ def _classificar_id(x) -> str:
         return QR_BOLETO
     if s.startswith(ID_COBCLOUD):
         return COBCLOUD
-    if s.startswith(ID_BOLETO_CB):
-        return BOLETO_CB
-    if s.startswith("3455/"):
+    if s.startswith(ID_BOLETO_CB) or s.startswith("3455/"):
         return BOLETO_CB
     if s.startswith("010"):
         return PDV
@@ -202,29 +219,88 @@ def _col(df, nomes) -> Optional[str]:
     return None
 
 
+# ============================================================
+# PROCESSO 2 — cruza o que sobrou (Monday) com os FATURADOS
+# ============================================================
+
+def ler_faturados(bytes_arq: bytes, nome: str) -> list[dict]:
+    """Lê a planilha de faturados (Monday): código parceiro, parceiro, nota, valor do desdobramento."""
+    raw = pd.read_excel(io.BytesIO(bytes_arq), sheet_name=0, header=None, engine=_engine(nome))
+    hdr = 0
+    for i in range(min(8, len(raw))):
+        linha = [str(v).strip().lower() for v in raw.iloc[i].tolist()]
+        if any("parceiro" in c for c in linha) and any("desdobramento" in c for c in linha):
+            hdr = i; break
+    df = pd.read_excel(io.BytesIO(bytes_arq), sheet_name=0, header=hdr, engine=_engine(nome))
+    df.columns = [str(c).strip() for c in df.columns]
+    c_cod = _col(df, ["parceiro"])
+    c_nota = _col(df, ["nro nota", "nota"])
+    c_nome = _col(df, ["nome parceiro", "nome"])
+    c_val = _col(df, ["vlr do desdobramento", "desdobramento"])
+    df = df[pd.to_numeric(df[c_cod], errors="coerce").notna()].copy()
+    out = []
+    for _, r in df.iterrows():
+        out.append({
+            "cod": int(float(r[c_cod])),
+            "nota": str(r[c_nota]).replace(".0", "") if pd.notna(r[c_nota]) else "",
+            "nome": str(r[c_nome]) if c_nome else "",
+            "valor": round(float(pd.to_numeric(r[c_val], errors="coerce") or 0), 2),
+        })
+    return out
+
+
+def _identificar_sobra(sobra: list[dict], sobra_ambigua: list[dict], faturados: list[dict]):
+    """Preenche cód parceiro / parceiro / nota nas sobras que casam por valor (um-para-um).
+    Continua sendo sobra — só identifica a origem."""
+    fat = list(faturados)
+    usado = [False] * len(fat)
+
+    def achar(v):
+        for i, fr in enumerate(fat):
+            if not usado[i] and round(float(fr["valor"]), 2) == round(v, 2):
+                usado[i] = True
+                return fr
+        return None
+
+    for s in sorted(sobra, key=lambda s: -s["valor"]):
+        fr = achar(s["valor"])
+        if fr:
+            s["cod"] = fr["cod"]; s["nome"] = fr["nome"]; s["nota"] = fr["nota"]
+    for g in sorted(sobra_ambigua, key=lambda g: -g["valor"]):
+        for _ in range(g["conta"]):
+            fr = achar(g["valor"])
+            if fr:
+                g.setdefault("ident", []).append(fr)
+
+
+def _engine(nome: str):
+    return "xlrd" if str(nome).lower().endswith(".xls") else None
+
+
+# ============================================================
+# PLANILHA (resumo no topo + só o detalhe do que sobra)
+# ============================================================
+
 def gerar_xlsx_conciliacao(resumo: list[dict], sobra: list[dict], data_label: str,
-                           despesas: list[dict] | None = None,
-                           aplicacoes: list[dict] | None = None,
-                           sobra_ambigua: list[dict] | None = None) -> bytes:
-    """Gera a planilha do Processo 1 (resumo + PIX sobrando + ambíguos + despesas + aplicações)."""
-    despesas = despesas or []
-    aplicacoes = aplicacoes or []
+                           sobra_ambigua: list[dict] | None = None, **_ignore) -> bytes:
     sobra_ambigua = sobra_ambigua or []
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 
     AZUL = "041747"; VERM = "DC3545"; CINZA = "6C757D"
-    COR = {QR_BOLETO: "0F8C3B", PDV: "0071FE", COBCLOUD: "041747", BOLETO_CB: "0071FE", SOBRA: "DC3545"}
+    COR = {QR_BOLETO: "0F8C3B", PDV: "0071FE", COBCLOUD: "041747", BOLETO_CB: "0071FE",
+           TRANSF: "6C757D", TED: "6C757D", DOC: "6C757D", SOBRA: "DC3545",
+           DESPESA: "B00020", TARIFA: "B00020", APLICACAO: "7B5800"}
     thin = Side(style="thin", color="D9DCE3")
 
     def F(**k): return Font(name="Arial", **k)
 
     wb = Workbook(); ws = wb.active; ws.title = "Conciliação"
     ws["A1"] = f"Conciliação de Recebimentos — {data_label}"; ws["A1"].font = F(size=15, bold=True, color=AZUL)
-    ws["A2"] = "Recebimentos automáticos classificados e PIX sobrando para o Monday"; ws["A2"].font = F(size=9, color=CINZA)
+    ws["A2"] = "Resumo dos recebimentos/movimentos e detalhe do PIX sobrando (Monday)"; ws["A2"].font = F(size=9, color=CINZA)
 
-    ws["A4"] = "RESUMO POR TIPO"; ws["A4"].font = F(size=11, bold=True, color=AZUL)
+    ws["A4"] = "RESUMO"; ws["A4"].font = F(size=11, bold=True, color=AZUL)
     for j, c in enumerate(["Tipo", "Qtd", "Valor (R$)"], 1):
         cell = ws.cell(row=5, column=j, value=c); cell.font = F(size=10, bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor=AZUL); cell.alignment = Alignment(horizontal="left" if j == 1 else "center")
@@ -232,105 +308,53 @@ def gerar_xlsx_conciliacao(resumo: list[dict], sobra: list[dict], data_label: st
         rr = 6 + i
         ws.cell(row=rr, column=1, value=x["tipo"]).font = F(size=10, bold=True, color=COR.get(x["tipo"], AZUL))
         qc = ws.cell(row=rr, column=2, value=x["qtd"]); qc.font = F(size=10); qc.alignment = Alignment(horizontal="center")
-        vc = ws.cell(row=rr, column=3, value=x["valor"]); vc.font = F(size=10); vc.number_format = '#,##0.00'
+        vc = ws.cell(row=rr, column=3, value=x["valor"]); vc.font = F(size=10); vc.number_format = '#,##0.00;[Red]-#,##0.00'
         for j in range(1, 4): ws.cell(row=rr, column=j).border = Border(bottom=thin)
-    tr = 6 + len(resumo)
-    ws.cell(row=tr, column=1, value="TOTAL geral").font = F(size=10, bold=True, color=AZUL)
-    tg = ws.cell(row=tr, column=3, value=f"=SUM(C6:C{tr-1})"); tg.font = F(size=10, bold=True, color=AZUL)
-    tg.number_format = '#,##0.00'; tg.fill = PatternFill("solid", fgColor="FFF6D9")
 
-    base = tr + 2
+    base = 6 + len(resumo) + 2
     ws.cell(row=base, column=1, value="DETALHE — PIX SOBRANDO (Monday)").font = F(size=11, bold=True, color=VERM)
-    for j, c in enumerate(["#", "Data", "Histórico", "Valor (R$)"], 1):
+    cab = ["#", "Data", "Histórico", "Cód Parceiro", "Parceiro", "Nota", "Valor (R$)"]
+    for j, c in enumerate(cab, 1):
         cell = ws.cell(row=base + 1, column=j, value=c); cell.font = F(size=10, bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor=VERM); cell.alignment = Alignment(horizontal="left" if j == 3 else "center")
+        cell.fill = PatternFill("solid", fgColor=VERM)
+        cell.alignment = Alignment(horizontal="left" if c in ("Histórico", "Parceiro") else "center")
     for i, s in enumerate(sobra):
         rr = base + 2 + i
         ws.cell(row=rr, column=1, value=i + 1).font = F(size=10)
         ws.cell(row=rr, column=2, value=s["data"]).font = F(size=10)
         ws.cell(row=rr, column=3, value=s["historico"]).font = F(size=10)
-        vc = ws.cell(row=rr, column=4, value=float(s["valor"])); vc.font = F(size=10); vc.number_format = '#,##0.00'
-        for j in range(1, 5): ws.cell(row=rr, column=j).border = Border(bottom=thin)
+        ws.cell(row=rr, column=4, value=(s.get("cod") or "")).font = F(size=10)
+        ws.cell(row=rr, column=5, value=(s.get("nome") or "")).font = F(size=10)
+        ws.cell(row=rr, column=6, value=(str(s.get("nota")) if s.get("nota") else "")).font = F(size=10)
+        vc = ws.cell(row=rr, column=7, value=float(s["valor"])); vc.font = F(size=10); vc.number_format = '#,##0.00'
+        for j in range(1, 8): ws.cell(row=rr, column=j).border = Border(bottom=thin)
     tr2 = base + 2 + len(sobra)
-    ws.cell(row=tr2, column=3, value="Subtotal sobrando (claros)").font = F(size=10, bold=True, color=VERM)
-    ws.cell(row=tr2, column=3).alignment = Alignment(horizontal="right")
-    ts = ws.cell(row=tr2, column=4, value=f"=SUM(D{base+2}:D{tr2-1})" if sobra else 0)
+    ws.cell(row=tr2, column=6, value="Subtotal (claros)").font = F(size=10, bold=True, color=VERM)
+    ws.cell(row=tr2, column=6).alignment = Alignment(horizontal="right")
+    ts = ws.cell(row=tr2, column=7, value=f"=SUM(G{base+2}:G{tr2-1})" if sobra else 0)
     ts.font = F(size=10, bold=True, color=VERM); ts.number_format = '#,##0.00'
 
-    # PIX AMBÍGUOS — mesmo valor de QR/PIX; mostra candidatos lado a lado, conta só os que sobram
+    linha = tr2
     total_ambiguo = round(sum(g["valor"] * g["conta"] for g in sobra_ambigua), 2)
-    linha_atual = tr2
     if sobra_ambigua:
         ab = tr2 + 2
-        ws.cell(row=ab, column=1, value="PIX AMBÍGUOS — mesmo valor de QR/PIX (não somar os dois; só um sobra)").font = F(size=11, bold=True, color="7B5800")
-        cabec = ["Valor (R$)", "Sobrando", "Candidatos (lado a lado)"]
-        for j, c in enumerate(cabec, 1):
+        ws.cell(row=ab, column=1, value="PIX AMBÍGUOS — mesmo valor de QR/PIX (não somar; só um sobra)").font = F(size=11, bold=True, color="7B5800")
+        for j, c in enumerate(["Valor (R$)", "Sobrando", "Candidatos (lado a lado)"], 1):
             cell = ws.cell(row=ab + 1, column=j, value=c); cell.font = F(size=10, bold=True, color="3A2D00")
             cell.fill = PatternFill("solid", fgColor="FAC318")
-        max_cand = 0
         for i, g in enumerate(sobra_ambigua):
             rr = ab + 2 + i
             vc = ws.cell(row=rr, column=1, value=float(g["valor"])); vc.font = F(size=10, bold=True); vc.number_format = '#,##0.00'
             ws.cell(row=rr, column=2, value=f'{g["conta"]} de {len(g["candidatos"])}').font = F(size=10, color="7B5800")
             for k, cand in enumerate(g["candidatos"]):
-                cc = ws.cell(row=rr, column=3 + k, value=f'{cand["data"]} · {cand["historico"]}')
-                cc.font = F(size=9)
-            max_cand = max(max_cand, len(g["candidatos"]))
-            for j in range(1, 3 + max_cand): ws.cell(row=rr, column=j).border = Border(bottom=thin)
-        arow = ab + 2 + len(sobra_ambigua)
-        ws.cell(row=arow, column=1, value="Subtotal ambíguos (contado)").font = F(size=10, bold=True, color="7B5800")
-        ac = ws.cell(row=arow, column=2, value=total_ambiguo); ac.font = F(size=10, bold=True, color="7B5800"); ac.number_format = '#,##0.00'
-        linha_atual = arow
+                ws.cell(row=rr, column=3 + k, value=f'{cand["data"]} · {cand["historico"]}').font = F(size=9)
+        linha = ab + 2 + len(sobra_ambigua)
 
-    # TOTAL sobrando (claros + ambíguos contados)
-    gtot = linha_atual + 1
-    ws.cell(row=gtot, column=3, value="TOTAL sobrando (Monday)").font = F(size=11, bold=True, color=VERM)
-    ws.cell(row=gtot, column=3).alignment = Alignment(horizontal="right")
-    gt = ws.cell(row=gtot, column=4, value=round(sum(s["valor"] for s in sobra) + total_ambiguo, 2))
+    gtot = linha + 1
+    ws.cell(row=gtot, column=6, value="TOTAL sobrando (Monday)").font = F(size=11, bold=True, color=VERM)
+    ws.cell(row=gtot, column=6).alignment = Alignment(horizontal="right")
+    gt = ws.cell(row=gtot, column=7, value=round(sum(s["valor"] for s in sobra) + total_ambiguo, 2))
     gt.font = F(size=11, bold=True, color=VERM); gt.number_format = '#,##0.00'; gt.fill = PatternFill("solid", fgColor="FDE7E9")
 
-    for j, w in zip(range(1, 6), [14, 12, 42, 30, 30]): ws.column_dimensions[get_column_letter(j)].width = w
-
-    # DESPESAS (saídas do extrato — valores em vermelho)
-    dbase = gtot + 2
-    ws.cell(row=dbase, column=1, value="DESPESAS — saídas do extrato (Valor em vermelho)").font = F(size=11, bold=True, color="B00020")
-    for j, c in enumerate(["#", "Data", "Histórico", "Valor (R$)"], 1):
-        cell = ws.cell(row=dbase + 1, column=j, value=c); cell.font = F(size=10, bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="B00020"); cell.alignment = Alignment(horizontal="left" if j == 3 else "center")
-    for i, d in enumerate(despesas):
-        rr = dbase + 2 + i
-        ws.cell(row=rr, column=1, value=i + 1).font = F(size=10)
-        ws.cell(row=rr, column=2, value=d["data"]).font = F(size=10)
-        ws.cell(row=rr, column=3, value=d["historico"]).font = F(size=10)
-        vc = ws.cell(row=rr, column=4, value=float(d["valor"])); vc.font = F(size=10, color="B00020")
-        vc.number_format = '#,##0.00;[Red]-#,##0.00'
-        for j in range(1, 5): ws.cell(row=rr, column=j).border = Border(bottom=thin)
-    dr = dbase + 2 + len(despesas)
-    ws.cell(row=dr, column=3, value="TOTAL despesas").font = F(size=11, bold=True, color="B00020")
-    ws.cell(row=dr, column=3).alignment = Alignment(horizontal="right")
-    td = ws.cell(row=dr, column=4, value=f"=SUM(D{dbase+2}:D{dr-1})" if despesas else 0)
-    td.font = F(size=11, bold=True, color="B00020"); td.number_format = '#,##0.00;[Red]-#,##0.00'
-    td.fill = PatternFill("solid", fgColor="FDE7E9")
-
-    # APLICAÇÕES (destaque — movimentação financeira, não é despesa)
-    abase = dr + 2
-    ws.cell(row=abase, column=1, value="APLICAÇÕES — movimentação financeira (não é despesa)").font = F(size=11, bold=True, color="7B5800")
-    for j, c in enumerate(["#", "Data", "Histórico", "Valor (R$)"], 1):
-        cell = ws.cell(row=abase + 1, column=j, value=c); cell.font = F(size=10, bold=True, color="3A2D00")
-        cell.fill = PatternFill("solid", fgColor="FAC318"); cell.alignment = Alignment(horizontal="left" if j == 3 else "center")
-    for i, a in enumerate(aplicacoes):
-        rr = abase + 2 + i
-        ws.cell(row=rr, column=1, value=i + 1).font = F(size=10)
-        ws.cell(row=rr, column=2, value=a["data"]).font = F(size=10)
-        ws.cell(row=rr, column=3, value=a["historico"]).font = F(size=10)
-        vc = ws.cell(row=rr, column=4, value=float(a["valor"])); vc.font = F(size=10, color="7B5800")
-        vc.number_format = '#,##0.00;[Red]-#,##0.00'
-        for j in range(1, 5): ws.cell(row=rr, column=j).border = Border(bottom=thin)
-    ar = abase + 2 + len(aplicacoes)
-    ws.cell(row=ar, column=3, value="TOTAL aplicações").font = F(size=11, bold=True, color="7B5800")
-    ws.cell(row=ar, column=3).alignment = Alignment(horizontal="right")
-    ta = ws.cell(row=ar, column=4, value=f"=SUM(D{abase+2}:D{ar-1})" if aplicacoes else 0)
-    ta.font = F(size=11, bold=True, color="7B5800"); ta.number_format = '#,##0.00;[Red]-#,##0.00'
-    ta.fill = PatternFill("solid", fgColor="FFF6D9")
-
+    for j, w in zip(range(1, 8), [6, 12, 34, 13, 30, 12, 16]): ws.column_dimensions[get_column_letter(j)].width = w
     buf = io.BytesIO(); wb.save(buf); return buf.getvalue()

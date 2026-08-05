@@ -1,10 +1,17 @@
 """Repositório da Conciliação — Supabase."""
 from __future__ import annotations
-from typing import Optional
 from src.banco.conexao import obter_conexao
 
 TAB = "conciliacao"
 TAB_SOBRA = "conciliacao_sobra"
+
+# tipo do resumo -> sufixo da coluna no header
+COL = {
+    "QR Boleto": "qrboleto", "PDV": "pdv", "CobCloud": "cobcloud",
+    "Boleto Cód Barras": "boletocb", "Transferência entre contas": "transfconta",
+    "TED": "ted", "DOC": "doc", "Sobrando (Monday)": "sobra",
+    "Despesas": "despesa", "Tarifas": "tarifa", "Aplicação": "aplicacao",
+}
 
 
 def _usuario_valido(uid):
@@ -18,46 +25,38 @@ def _usuario_valido(uid):
 
 
 def salvar_conciliacao(data_conciliacao: str, resumo: list[dict], sobra: list[dict],
-                       usuario_id=None, despesas: list[dict] | None = None,
-                       aplicacoes: list[dict] | None = None,
-                       sobra_ambigua: list[dict] | None = None) -> int:
-    """Salva (substitui) a conciliação de uma data. Retorna o id."""
+                       usuario_id=None, sobra_ambigua: list[dict] | None = None, **_ignore) -> int:
     sb = obter_conexao()
     uid = _usuario_valido(usuario_id)
-    despesas = despesas or []
-    aplicacoes = aplicacoes or []
     sobra_ambigua = sobra_ambigua or []
-    r = {x["tipo"]: x for x in resumo}
-    def q(t): return int(r.get(t, {}).get("qtd") or 0)
-    def v(t): return float(r.get(t, {}).get("valor") or 0)
+
+    header = {"data_conciliacao": data_conciliacao, "criado_por_id": uid}
+    for x in resumo:
+        col = COL.get(x["tipo"])
+        if not col:
+            continue
+        header[f"qtd_{col}"] = int(x.get("qtd") or 0)
+        header[f"valor_{col}"] = float(x.get("valor") or 0)
 
     ex = sb.table(TAB).select("id").eq("data_conciliacao", data_conciliacao).execute()
     if ex.data:
         sb.table(TAB).delete().eq("id", ex.data[0]["id"]).execute()
+    cid = sb.table(TAB).insert(header).execute().data[0]["id"]
 
-    ins = sb.table(TAB).insert({
-        "data_conciliacao": data_conciliacao,
-        "qtd_qrboleto": q("QR Boleto"), "valor_qrboleto": v("QR Boleto"),
-        "qtd_pdv": q("PDV"), "valor_pdv": v("PDV"),
-        "qtd_cobcloud": q("CobCloud"), "valor_cobcloud": v("CobCloud"),
-        "qtd_boletocb": q("Boleto Cód Barras"), "valor_boletocb": v("Boleto Cód Barras"),
-        "qtd_sobra": q("Sobrando (Monday)"), "valor_sobra": v("Sobrando (Monday)"),
-        "qtd_despesa": len(despesas), "valor_despesa": round(sum(float(d["valor"]) for d in despesas), 2),
-        "qtd_aplicacao": len(aplicacoes), "valor_aplicacao": round(sum(float(a["valor"]) for a in aplicacoes), 2),
-        "criado_por_id": uid,
-    }).execute()
-    cid = ins.data[0]["id"]
-
-    linhas = [{"conciliacao_id": cid, "tipo": "SOBRA", "data": s["data"],
-               "historico": s["historico"], "valor": float(s["valor"])} for s in sobra]
-    linhas += [{"conciliacao_id": cid, "tipo": "DESPESA", "data": d["data"],
-                "historico": d["historico"], "valor": float(d["valor"])} for d in despesas]
-    linhas += [{"conciliacao_id": cid, "tipo": "APLICACAO", "data": a["data"],
-                "historico": a["historico"], "valor": float(a["valor"])} for a in aplicacoes]
+    # só guardamos detalhe do que sobra (claros + ambíguos), já com a origem identificada
+    linhas = [{"conciliacao_id": cid, "tipo": "SOBRA", "data": s["data"], "historico": s["historico"],
+               "valor": float(s["valor"]), "cod_parceiro": (str(s["cod"]) if s.get("cod") else None),
+               "nome_parceiro": s.get("nome") or None, "nota": (str(s["nota"]) if s.get("nota") else None)}
+              for s in sobra]
     for g in sobra_ambigua:
-        for cand in g["candidatos"]:
+        ident = g.get("ident", [])
+        for k, cand in enumerate(g["candidatos"]):
+            fr = ident[k] if k < len(ident) else None
             linhas.append({"conciliacao_id": cid, "tipo": "AMBIGUA", "conta": int(g["conta"]),
-                           "data": cand["data"], "historico": cand["historico"], "valor": float(g["valor"])})
+                           "data": cand["data"], "historico": cand["historico"], "valor": float(g["valor"]),
+                           "cod_parceiro": (str(fr["cod"]) if fr else None),
+                           "nome_parceiro": (fr["nome"] if fr else None),
+                           "nota": (str(fr["nota"]) if fr else None)})
     for i in range(0, len(linhas), 500):
         if linhas[i:i + 500]:
             sb.table(TAB_SOBRA).insert(linhas[i:i + 500]).execute()
@@ -67,22 +66,26 @@ def salvar_conciliacao(data_conciliacao: str, resumo: list[dict], sobra: list[di
 def listar_conciliacoes() -> list[dict]:
     sb = obter_conexao()
     try:
-        r = sb.table(TAB).select("*").order("data_conciliacao", desc=True).execute()
-        return r.data or []
+        return sb.table(TAB).select("*").order("data_conciliacao", desc=True).execute().data or []
     except Exception:
         return []
 
 
+def reconstruir_resumo(r: dict) -> list[dict]:
+    """Monta o resumo (na ordem) a partir das colunas do header."""
+    ordem = ["QR Boleto", "PDV", "CobCloud", "Boleto Cód Barras", "Transferência entre contas",
+             "TED", "DOC", "Sobrando (Monday)", "Despesas", "Tarifas", "Aplicação"]
+    out = []
+    for tipo in ordem:
+        col = COL[tipo]
+        out.append({"tipo": tipo, "qtd": int(r.get(f"qtd_{col}") or 0), "valor": float(r.get(f"valor_{col}") or 0)})
+    return out
+
+
 def buscar_sobra(conciliacao_id: int) -> list[dict]:
-    return _buscar_detalhe(conciliacao_id, "SOBRA")
-
-
-def buscar_despesa(conciliacao_id: int) -> list[dict]:
-    return _buscar_detalhe(conciliacao_id, "DESPESA")
-
-
-def buscar_aplicacao(conciliacao_id: int) -> list[dict]:
-    return _buscar_detalhe(conciliacao_id, "APLICACAO")
+    rows = _buscar_detalhe(conciliacao_id, "SOBRA")
+    return [{"data": r.get("data"), "historico": r.get("historico"), "valor": float(r.get("valor") or 0),
+             "cod": r.get("cod_parceiro"), "nome": r.get("nome_parceiro"), "nota": r.get("nota")} for r in rows]
 
 
 def buscar_ambigua(conciliacao_id: int) -> list[dict]:
