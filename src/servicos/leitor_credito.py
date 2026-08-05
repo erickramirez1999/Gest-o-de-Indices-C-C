@@ -90,43 +90,35 @@ def ler_multiplos_arquivos_credito(arquivos: list[tuple[bytes, str]]) -> dict:
 # ============================================================
 
 def _detectar_tipo_credito(bytes_arq: bytes, nome: str) -> str:
-    """Detecta se é arquivo de Liberações, Aumento de Limite ou Tempo de Tela."""
+    """Detecta Liberações, Aumento de Limite ou Tempo de Tela. Conteúdo tem prioridade."""
     nome_lower = nome.lower()
 
-    # Por nome do arquivo — mais específico primeiro
-    if any(p in nome_lower for p in ["tempo_de_tela", "tempo de tela", "tto"]):
-        return "TEMPO_TELA"
-    if any(p in nome_lower for p in ["liberado", "negado", "passaram", "pedido", "fin_lib", "liberac"]):
-        return "LIBERACOES"
-    if any(p in nome_lower for p in ["limite", "aumento", "limit"]):
-        return "LIMITE"
-    if "tempo" in nome_lower and "tela" in nome_lower:
-        return "TEMPO_TELA"
-
-    # Por conteúdo da primeira célula (linha 0 do arquivo)
+    # 1) Por CONTEÚDO (mais confiável que o nome do arquivo)
     try:
         engine = "xlrd" if nome_lower.endswith(".xls") else "openpyxl"
-        df_peek = pd.read_excel(io.BytesIO(bytes_arq), nrows=3, header=None, engine=engine)
-        # Primeira célula geralmente identifica o bloco
-        primeira_celula = str(df_peek.iloc[0, 0]).lower().strip() if len(df_peek) > 0 else ""
-        texto_tudo = " ".join(str(v).lower() for v in df_peek.values.flatten() if pd.notna(v))
+        df_peek = pd.read_excel(io.BytesIO(bytes_arq), nrows=5, header=None, engine=engine)
+        texto = " ".join(str(v).lower() for v in df_peek.values.flatten() if pd.notna(v))
+        tem_desc_evento = "desc evento" in texto
+        tem_tempo = "tempo" in texto
+        tem_vlr = "vlr pedido" in texto or "vlr. pedido" in texto
+        tem_limite = any(p in texto for p in ["limite anterior", "novo limite", "variação", "variacao"])
 
-        if primeira_celula in ("liberados", "negados", "passaram direto", "passaram_direto"):
-            return "LIBERACOES"
-        if any(p in texto_tudo for p in ["limite anterior", "novo limite", "variação", "variacao"]):
-            return "LIMITE"
-        # Tempo de tela: tem "desc evento" E "tempo" mas NÃO tem "vlr pedido"
-        if "desc evento" in texto_tudo and "tempo" in texto_tudo and "vlr pedido" not in texto_tudo:
+        if tem_desc_evento and tem_tempo and not tem_vlr:
             return "TEMPO_TELA"
-        if any(p in texto_tudo for p in ["vlr pedido", "passaram direto", "liberados", "negados"]):
-            return "LIBERACOES"
-        if "nro único" in texto_tudo or "nro unico" in texto_tudo:
-            if "desc evento" in texto_tudo and "vlr pedido" not in texto_tudo:
-                return "TEMPO_TELA"
+        if tem_limite:
+            return "LIMITE"
+        if tem_vlr or ("nro único" in texto or "nro unico" in texto):
             return "LIBERACOES"
     except Exception:
         pass
 
+    # 2) Fallback por NOME (tempo antes de liberações, pra 'liberacao' não confundir)
+    if any(p in nome_lower for p in ["tempo", "tto", "medio_liberac", "medio liberac"]):
+        return "TEMPO_TELA"
+    if any(p in nome_lower for p in ["limite", "aumento"]):
+        return "LIMITE"
+    if any(p in nome_lower for p in ["liberado", "negado", "passaram", "direto", "pedido", "fin_lib", "liberac"]):
+        return "LIBERACOES"
     return "DESCONHECIDO"
 
 
@@ -253,13 +245,32 @@ def ler_liberacoes(bytes_arquivo: bytes, nome_arquivo: str) -> dict:
                 erros.append(f"Erro bloco {chave} em '{nome_arquivo}': {e}")
         return resultado
 
-    # Estratégia 2: única aba com separadores
+    # Estratégia 2: única aba com separadores de bloco
     try:
         primeira = list(abas.values())[0]
         blocos = _separar_blocos(primeira)
-        resultado.update(blocos)
+        for chave, dfb in blocos.items():
+            if not dfb.empty:
+                resultado[chave] = dfb
     except Exception as e:
         erros.append(f"Erro ao separar blocos em '{nome_arquivo}': {e}")
+
+    # Estratégia 3: arquivo de BLOCO ÚNICO (título genérico, sem marcadores).
+    # Ex.: "FIN - Liberações por pedido" (passaram direto). Decide o tipo pelo nome.
+    nl = nome_arquivo.lower()
+    if "passaram" in nl or "direto" in nl:
+        tipo_arq = "passaram_direto"
+    elif "liberado" in nl:
+        tipo_arq = "liberados"
+    elif "negado" in nl or "reprovad" in nl:
+        tipo_arq = "negados"
+    else:
+        tipo_arq = None
+    if tipo_arq and resultado.get(tipo_arq) is not None and resultado[tipo_arq].empty:
+        try:
+            resultado[tipo_arq] = _limpar_bloco(list(abas.values())[0], tipo_arq)
+        except Exception as e:
+            erros.append(f"Erro ao ler bloco único '{tipo_arq}' em '{nome_arquivo}': {e}")
 
     return resultado
 
@@ -326,18 +337,22 @@ def _limpar_bloco(df: pd.DataFrame, tipo: str) -> pd.DataFrame:
 
 
 def _separar_blocos(df: pd.DataFrame) -> dict:
-    CHAVES = [
-        ("passaram_direto", ["passaram direto"]),
-        ("liberados", ["liberados"]),
-        ("negados", ["negados"]),
-    ]
+    # título do bloco = primeira célula da linha (isolada), não texto no meio dos dados
+    TITULOS = {
+        "passaram direto": "passaram_direto",
+        "passaram_direto": "passaram_direto",
+        "liberados": "liberados",
+        "negados": "negados",
+    }
     indices = {}
     for i, row in df.iterrows():
-        texto = " ".join(str(v).lower() for v in row.values if pd.notna(v))
-        for chave, palavras in CHAVES:
-            if chave not in indices and any(p in texto for p in palavras):
-                indices[chave] = i
-                break
+        vals = [v for v in row.values if pd.notna(v)]
+        if not vals:
+            continue
+        primeira = str(vals[0]).strip().lower()
+        chave = TITULOS.get(primeira)
+        if chave and chave not in indices:
+            indices[chave] = i
 
     ordenadas = sorted(indices.items(), key=lambda x: x[1])
     resultado = {}
