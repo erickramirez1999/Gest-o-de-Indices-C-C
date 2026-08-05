@@ -172,22 +172,41 @@ def _dashboard_liberacoes(df: pd.DataFrame, df_ant: pd.DataFrame | None, periodo
         )
         st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
 
-    # Ranking analistas
+    # Ranking analistas — aprovados (liberados) e reprovados (negados)
     st.markdown("---")
     st.markdown(f"<h3 style='color:{AZUL_ESCURO}'>Ranking de Analistas</h3>", unsafe_allow_html=True)
 
-    df_lib = df[df["tipo"] == "LIBERADO"].copy()
-    if "analista" in df_lib.columns and not df_lib["analista"].isna().all():
-        ranking = (
-            df_lib.dropna(subset=["analista"])
-            .groupby("analista")
-            .agg(qtd=("vlr_pedido", "count"), valor=("vlr_pedido", "sum"))
-            .sort_values("qtd", ascending=False)
-            .reset_index()
-        )
-        ranking["valor_fmt"] = ranking["valor"].apply(formatar_brl)
-        ranking.rename(columns={"analista": "Analista", "qtd": "Liberações", "valor_fmt": "Valor Liberado"}, inplace=True)
-        st.dataframe(ranking[["Analista", "Liberações", "Valor Liberado"]], use_container_width=True, hide_index=True)
+    def _ranking(tipo, col_qtd, col_valor):
+        d = df[df["tipo"] == tipo].copy()
+        if "analista" not in d.columns or d["analista"].isna().all():
+            return None
+        r = (d.dropna(subset=["analista"])
+             .groupby("analista")
+             .agg(qtd=("vlr_pedido", "count"), valor=("vlr_pedido", "sum"))
+             .sort_values("qtd", ascending=False)
+             .reset_index())
+        r = r[r["analista"].astype(str).str.strip() != ""]
+        r["valor"] = r["valor"].apply(formatar_brl)
+        r.rename(columns={"analista": "Analista", "qtd": col_qtd, "valor": col_valor}, inplace=True)
+        return r[["Analista", col_qtd, col_valor]]
+
+    col_a, col_r = st.columns(2)
+    with col_a:
+        st.markdown(f"<b style='color:{COR_AZUL}'>✅ Aprovados (Liberados)</b>", unsafe_allow_html=True)
+        ra = _ranking("LIBERADO", "Liberações", "Valor Liberado")
+        if ra is not None and len(ra):
+            st.dataframe(ra, use_container_width=True, hide_index=True)
+            st.caption(f"Total: {int(ra['Liberações'].sum())} liberações")
+        else:
+            st.caption("Sem dados de liberações com analista.")
+    with col_r:
+        st.markdown(f"<b style='color:{COR_VERMELHO}'>❌ Reprovados (Negados)</b>", unsafe_allow_html=True)
+        rr = _ranking("NEGADO", "Negados", "Valor Negado")
+        if rr is not None and len(rr):
+            st.dataframe(rr, use_container_width=True, hide_index=True)
+            st.caption(f"Total: {int(rr['Negados'].sum())} negados")
+        else:
+            st.caption("Sem dados de negados com analista.")
 
     # Exportar PPT
     st.markdown("---")
