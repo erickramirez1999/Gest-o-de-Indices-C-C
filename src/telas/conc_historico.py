@@ -57,6 +57,7 @@ def renderizar_conc_historico(usuario):
     aplic_raw = repo_conciliacao.buscar_aplicacao(r["id"])
     aplicacoes = sorted([{"data": a.get("data"), "historico": a.get("historico"), "valor": float(a.get("valor") or 0)}
                          for a in aplic_raw], key=lambda d: d["valor"])
+    ambiguos = repo_conciliacao.buscar_ambigua(r["id"])
 
     metricas = [(x["tipo"], formatar_brl(x["valor"]), f"{x['qtd']} lçtos") for x in resumo]
     metricas.append(("Despesas", formatar_brl(r.get("valor_despesa") or 0), f"{int(r.get('qtd_despesa') or 0)} saídas"))
@@ -86,7 +87,15 @@ def renderizar_conc_historico(usuario):
         st.markdown("**🟡 Aplicações (movimentação financeira)**")
         st.dataframe(da, use_container_width=True, hide_index=True, height=140)
 
-    xlsx = gerar_xlsx_conciliacao(resumo, sobra, sel, despesas=despesas, aplicacoes=aplicacoes)
+    if ambiguos:
+        st.markdown("**🟡 PIX ambíguos (só um sobra — não somar os dois)**")
+        linhas = [{"Valor": formatar_brl(g["valor"]), "Sobrando": f'{g["conta"]} de {len(g["candidatos"])}',
+                   "Candidatos": "   |   ".join(f'{c["data"]} · {c["historico"]}' for c in g["candidatos"])}
+                  for g in ambiguos]
+        st.dataframe(pd.DataFrame(linhas), use_container_width=True, hide_index=True)
+
+    xlsx = gerar_xlsx_conciliacao(resumo, sobra, sel, despesas=despesas, aplicacoes=aplicacoes,
+                                  sobra_ambigua=ambiguos)
     st.download_button("📥 Baixar planilha desta conciliação", data=xlsx,
                        file_name=f"Conciliacao_{r['data_conciliacao']}.xlsx",
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

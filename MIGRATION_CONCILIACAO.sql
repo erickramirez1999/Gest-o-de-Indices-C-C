@@ -40,3 +40,7 @@ NOTIFY pgrst, 'reload schema';
 ALTER TABLE conciliacao ADD COLUMN IF NOT EXISTS qtd_boletocb INTEGER;
 ALTER TABLE conciliacao ADD COLUMN IF NOT EXISTS valor_boletocb NUMERIC;
 NOTIFY pgrst, 'reload schema';
+
+-- PIX ambíguos (mesmo valor de QR/PIX) — guarda quantos realmente sobram
+ALTER TABLE conciliacao_sobra ADD COLUMN IF NOT EXISTS conta INTEGER;
+NOTIFY pgrst, 'reload schema';

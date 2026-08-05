@@ -19,12 +19,14 @@ def _usuario_valido(uid):
 
 def salvar_conciliacao(data_conciliacao: str, resumo: list[dict], sobra: list[dict],
                        usuario_id=None, despesas: list[dict] | None = None,
-                       aplicacoes: list[dict] | None = None) -> int:
+                       aplicacoes: list[dict] | None = None,
+                       sobra_ambigua: list[dict] | None = None) -> int:
     """Salva (substitui) a conciliação de uma data. Retorna o id."""
     sb = obter_conexao()
     uid = _usuario_valido(usuario_id)
     despesas = despesas or []
     aplicacoes = aplicacoes or []
+    sobra_ambigua = sobra_ambigua or []
     r = {x["tipo"]: x for x in resumo}
     def q(t): return int(r.get(t, {}).get("qtd") or 0)
     def v(t): return float(r.get(t, {}).get("valor") or 0)
@@ -52,6 +54,10 @@ def salvar_conciliacao(data_conciliacao: str, resumo: list[dict], sobra: list[di
                 "historico": d["historico"], "valor": float(d["valor"])} for d in despesas]
     linhas += [{"conciliacao_id": cid, "tipo": "APLICACAO", "data": a["data"],
                 "historico": a["historico"], "valor": float(a["valor"])} for a in aplicacoes]
+    for g in sobra_ambigua:
+        for cand in g["candidatos"]:
+            linhas.append({"conciliacao_id": cid, "tipo": "AMBIGUA", "conta": int(g["conta"]),
+                           "data": cand["data"], "historico": cand["historico"], "valor": float(g["valor"])})
     for i in range(0, len(linhas), 500):
         if linhas[i:i + 500]:
             sb.table(TAB_SOBRA).insert(linhas[i:i + 500]).execute()
@@ -77,6 +83,16 @@ def buscar_despesa(conciliacao_id: int) -> list[dict]:
 
 def buscar_aplicacao(conciliacao_id: int) -> list[dict]:
     return _buscar_detalhe(conciliacao_id, "APLICACAO")
+
+
+def buscar_ambigua(conciliacao_id: int) -> list[dict]:
+    rows = _buscar_detalhe(conciliacao_id, "AMBIGUA")
+    grupos = {}
+    for r in rows:
+        v = round(float(r.get("valor") or 0), 2)
+        g = grupos.setdefault(v, {"valor": v, "conta": int(r.get("conta") or 1), "candidatos": []})
+        g["candidatos"].append({"data": r.get("data"), "historico": r.get("historico"), "valor": v})
+    return sorted(grupos.values(), key=lambda g: -g["valor"])
 
 
 def _buscar_detalhe(conciliacao_id: int, tipo: str) -> list[dict]:

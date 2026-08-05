@@ -310,7 +310,8 @@ CREATE TABLE IF NOT EXISTS conciliacao_sobra (
     id BIGSERIAL PRIMARY KEY,
     conciliacao_id BIGINT NOT NULL REFERENCES conciliacao(id) ON DELETE CASCADE,
     tipo TEXT DEFAULT 'SOBRA',
-    data TEXT,
+    conta INTEGER,
+    data TEXT
     historico TEXT,
     valor NUMERIC
 );

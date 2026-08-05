@@ -50,13 +50,24 @@ def renderizar_conc_processo1(usuario):
             f"<div style='font-size:11px;color:#6C757D'>{x['qtd']} lançamentos</div></div>",
             unsafe_allow_html=True)
 
-    st.markdown(f"### PIX sobrando (Monday) — {len(res['sobra'])} · {formatar_brl(res['total_sobra'])}")
+    st.markdown(f"### PIX sobrando (Monday) — {res['resumo'][4]['qtd']} · {formatar_brl(res['total_sobra'])}")
     df = pd.DataFrame(res["sobra"])
     if not df.empty:
         disp = df.copy()
         disp["valor"] = disp["valor"].map(formatar_brl)
         disp.columns = ["Data", "Histórico", "Valor"]
-        st.dataframe(disp, use_container_width=True, hide_index=True, height=420)
+        st.dataframe(disp, use_container_width=True, hide_index=True, height=380)
+
+    ambiguos = res.get("sobra_ambigua", [])
+    if ambiguos:
+        st.markdown("#### 🟡 PIX ambíguos (mesmo valor de QR/PIX — não somar os dois; só um sobra)")
+        linhas = []
+        for g in ambiguos:
+            cand = "   |   ".join(f'{c["data"]} · {c["historico"]}' for c in g["candidatos"])
+            linhas.append({"Valor": formatar_brl(g["valor"]),
+                           "Sobrando": f'{g["conta"]} de {len(g["candidatos"])}',
+                           "Candidatos (lado a lado)": cand})
+        st.dataframe(pd.DataFrame(linhas), use_container_width=True, hide_index=True)
 
     despesas = res.get("despesas", [])
     total_desp = res.get("total_despesa", 0.0)
@@ -84,7 +95,8 @@ def renderizar_conc_processo1(usuario):
     data_label = data_conc.strftime("%d/%m/%Y")
 
     xlsx = gerar_xlsx_conciliacao(res["resumo"], res["sobra"], data_label,
-                                  despesas=despesas, aplicacoes=aplicacoes)
+                                  despesas=despesas, aplicacoes=aplicacoes,
+                                  sobra_ambigua=res.get("sobra_ambigua", []))
     c2.download_button("📥 Baixar planilha", data=xlsx,
                        file_name=f"Conciliacao_{data_conc.isoformat()}.xlsx",
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -95,7 +107,8 @@ def renderizar_conc_processo1(usuario):
             try:
                 repo_conciliacao.salvar_conciliacao(data_conc.isoformat(), res["resumo"], res["sobra"],
                                                     getattr(usuario, "id", None),
-                                                    despesas=despesas, aplicacoes=aplicacoes)
+                                                    despesas=despesas, aplicacoes=aplicacoes,
+                                                    sobra_ambigua=res.get("sobra_ambigua", []))
             except Exception as e:
                 st.error(f"Falha ao salvar: {getattr(e,'message',None) or repr(e)[:300]}")
                 st.stop()

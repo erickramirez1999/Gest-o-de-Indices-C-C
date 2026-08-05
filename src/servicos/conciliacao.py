@@ -71,18 +71,32 @@ def processar_conciliacao(arquivos: list[tuple[bytes, str]]) -> dict:
     ].copy()
     pix["valor"] = pd.to_numeric(pix["valor"], errors="coerce").round(2)
 
-    # remove por valor os automáticos (QR Boleto + PDV) da base
+    # remove por valor os automáticos (QR Boleto + PDV) da base; trata ambiguidade
+    from collections import defaultdict
     auto = [round(v, 2) for v in base_df[base_df["cat"].isin([QR_BOLETO, PDV])]["valor"].dropna().tolist()]
-    cont = Counter(auto)
-    sobra = []
+    auto_cont = Counter(auto)
+
+    pix_por_valor = defaultdict(list)
     for _, r in pix.iterrows():
         v = round(float(r["valor"]), 2)
-        if cont.get(v, 0) > 0:
-            cont[v] -= 1
-        else:
-            sobra.append({"data": str(r["data"]), "historico": str(r["historico"]).strip(), "valor": v})
+        pix_por_valor[v].append({"data": str(r["data"]), "historico": str(r["historico"]).strip(), "valor": v})
 
-    total_sobra = round(sum(s["valor"] for s in sobra), 2)
+    sobra = []            # sobrando sem ambiguidade
+    sobra_ambigua = []    # grupos: mesmo valor aparece como automático E como pix sobrando
+    for v, rows in pix_por_valor.items():
+        a_v = auto_cont.get(v, 0)
+        leftover = max(0, len(rows) - a_v)
+        if leftover == 0:
+            continue                      # todos casaram com automáticos
+        if a_v == 0:
+            sobra.extend(rows)            # nenhum automático desse valor → sobra limpa
+        else:
+            # ambíguo: não dá pra saber qual pix é o automático e qual sobra
+            sobra_ambigua.append({"valor": v, "conta": leftover, "candidatos": rows})
+
+    total_sobra = round(sum(s["valor"] for s in sobra)
+                        + sum(g["valor"] * g["conta"] for g in sobra_ambigua), 2)
+    qtd_sobra = len(sobra) + sum(g["conta"] for g in sobra_ambigua)
 
     # SAÍDAS (Valor < 0) no extrato → separa Aplicação de Despesa
     ext_v = pd.to_numeric(extrato_df["valor"], errors="coerce")
@@ -104,9 +118,10 @@ def processar_conciliacao(arquivos: list[tuple[bytes, str]]) -> dict:
         {"tipo": PDV, "qtd": qtd_pdv, "valor": val_pdv},
         {"tipo": COBCLOUD, "qtd": qtd_cob, "valor": val_cob},
         {"tipo": BOLETO_CB, "qtd": qtd_bcb, "valor": val_bcb},
-        {"tipo": SOBRA, "qtd": len(sobra), "valor": total_sobra},
+        {"tipo": SOBRA, "qtd": qtd_sobra, "valor": total_sobra},
     ]
     res["sobra"] = sorted(sobra, key=lambda s: -s["valor"])
+    res["sobra_ambigua"] = sorted(sobra_ambigua, key=lambda g: -g["valor"])
     res["total_sobra"] = total_sobra
     res["despesas"] = despesas
     res["total_despesa"] = total_despesa
@@ -189,10 +204,12 @@ def _col(df, nomes) -> Optional[str]:
 
 def gerar_xlsx_conciliacao(resumo: list[dict], sobra: list[dict], data_label: str,
                            despesas: list[dict] | None = None,
-                           aplicacoes: list[dict] | None = None) -> bytes:
-    """Gera a planilha do Processo 1 (resumo + PIX sobrando + despesas + aplicações)."""
+                           aplicacoes: list[dict] | None = None,
+                           sobra_ambigua: list[dict] | None = None) -> bytes:
+    """Gera a planilha do Processo 1 (resumo + PIX sobrando + ambíguos + despesas + aplicações)."""
     despesas = despesas or []
     aplicacoes = aplicacoes or []
+    sobra_ambigua = sobra_ambigua or []
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
@@ -235,15 +252,47 @@ def gerar_xlsx_conciliacao(resumo: list[dict], sobra: list[dict], data_label: st
         vc = ws.cell(row=rr, column=4, value=float(s["valor"])); vc.font = F(size=10); vc.number_format = '#,##0.00'
         for j in range(1, 5): ws.cell(row=rr, column=j).border = Border(bottom=thin)
     tr2 = base + 2 + len(sobra)
-    ws.cell(row=tr2, column=3, value="TOTAL sobrando").font = F(size=11, bold=True, color=VERM)
+    ws.cell(row=tr2, column=3, value="Subtotal sobrando (claros)").font = F(size=10, bold=True, color=VERM)
     ws.cell(row=tr2, column=3).alignment = Alignment(horizontal="right")
     ts = ws.cell(row=tr2, column=4, value=f"=SUM(D{base+2}:D{tr2-1})" if sobra else 0)
-    ts.font = F(size=11, bold=True, color=VERM); ts.number_format = '#,##0.00'; ts.fill = PatternFill("solid", fgColor="FDE7E9")
+    ts.font = F(size=10, bold=True, color=VERM); ts.number_format = '#,##0.00'
 
-    for j, w in zip(range(1, 5), [6, 12, 42, 16]): ws.column_dimensions[get_column_letter(j)].width = w
+    # PIX AMBÍGUOS — mesmo valor de QR/PIX; mostra candidatos lado a lado, conta só os que sobram
+    total_ambiguo = round(sum(g["valor"] * g["conta"] for g in sobra_ambigua), 2)
+    linha_atual = tr2
+    if sobra_ambigua:
+        ab = tr2 + 2
+        ws.cell(row=ab, column=1, value="PIX AMBÍGUOS — mesmo valor de QR/PIX (não somar os dois; só um sobra)").font = F(size=11, bold=True, color="7B5800")
+        cabec = ["Valor (R$)", "Sobrando", "Candidatos (lado a lado)"]
+        for j, c in enumerate(cabec, 1):
+            cell = ws.cell(row=ab + 1, column=j, value=c); cell.font = F(size=10, bold=True, color="3A2D00")
+            cell.fill = PatternFill("solid", fgColor="FAC318")
+        max_cand = 0
+        for i, g in enumerate(sobra_ambigua):
+            rr = ab + 2 + i
+            vc = ws.cell(row=rr, column=1, value=float(g["valor"])); vc.font = F(size=10, bold=True); vc.number_format = '#,##0.00'
+            ws.cell(row=rr, column=2, value=f'{g["conta"]} de {len(g["candidatos"])}').font = F(size=10, color="7B5800")
+            for k, cand in enumerate(g["candidatos"]):
+                cc = ws.cell(row=rr, column=3 + k, value=f'{cand["data"]} · {cand["historico"]}')
+                cc.font = F(size=9)
+            max_cand = max(max_cand, len(g["candidatos"]))
+            for j in range(1, 3 + max_cand): ws.cell(row=rr, column=j).border = Border(bottom=thin)
+        arow = ab + 2 + len(sobra_ambigua)
+        ws.cell(row=arow, column=1, value="Subtotal ambíguos (contado)").font = F(size=10, bold=True, color="7B5800")
+        ac = ws.cell(row=arow, column=2, value=total_ambiguo); ac.font = F(size=10, bold=True, color="7B5800"); ac.number_format = '#,##0.00'
+        linha_atual = arow
+
+    # TOTAL sobrando (claros + ambíguos contados)
+    gtot = linha_atual + 1
+    ws.cell(row=gtot, column=3, value="TOTAL sobrando (Monday)").font = F(size=11, bold=True, color=VERM)
+    ws.cell(row=gtot, column=3).alignment = Alignment(horizontal="right")
+    gt = ws.cell(row=gtot, column=4, value=round(sum(s["valor"] for s in sobra) + total_ambiguo, 2))
+    gt.font = F(size=11, bold=True, color=VERM); gt.number_format = '#,##0.00'; gt.fill = PatternFill("solid", fgColor="FDE7E9")
+
+    for j, w in zip(range(1, 6), [14, 12, 42, 30, 30]): ws.column_dimensions[get_column_letter(j)].width = w
 
     # DESPESAS (saídas do extrato — valores em vermelho)
-    dbase = tr2 + 2
+    dbase = gtot + 2
     ws.cell(row=dbase, column=1, value="DESPESAS — saídas do extrato (Valor em vermelho)").font = F(size=11, bold=True, color="B00020")
     for j, c in enumerate(["#", "Data", "Histórico", "Valor (R$)"], 1):
         cell = ws.cell(row=dbase + 1, column=j, value=c); cell.font = F(size=10, bold=True, color="FFFFFF")
