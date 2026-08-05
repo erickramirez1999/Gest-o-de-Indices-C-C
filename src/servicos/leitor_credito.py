@@ -256,19 +256,28 @@ def ler_liberacoes(bytes_arquivo: bytes, nome_arquivo: str) -> dict:
         erros.append(f"Erro ao separar blocos em '{nome_arquivo}': {e}")
 
     # Estratégia 3: arquivo de BLOCO ÚNICO (título genérico, sem marcadores).
-    # Ex.: "FIN - Liberações por pedido" (passaram direto). Decide o tipo pelo nome.
+    # Ex.: "FIN - Liberações por pedido" (passaram direto). Decide pelo nome E pelo conteúdo.
+    primeira = list(abas.values())[0]
+    l0 = str(primeira.iloc[0, 0]).lower() if len(primeira) else ""
+    texto_cab = " ".join(str(v).lower() for v in primeira.head(4).values.flatten() if pd.notna(v))
     nl = nome_arquivo.lower()
-    if "passaram" in nl or "direto" in nl:
+
+    tem_eventos = "eventos" in texto_cab
+    tem_data_lib = "data da liberação" in texto_cab or "data da liberacao" in texto_cab
+
+    # passaram direto = tem "Data da Liberação" e NÃO tem "Eventos" (ou nome explícito).
+    # Liberados/Negados SEMPRE têm "Eventos" → nunca caem aqui.
+    if ("passaram" in nl or "direto" in nl) or (tem_data_lib and not tem_eventos):
         tipo_arq = "passaram_direto"
-    elif "liberado" in nl:
+    elif tem_eventos and ("liberado" in nl or l0.strip() == "liberados"):
         tipo_arq = "liberados"
-    elif "negado" in nl or "reprovad" in nl:
+    elif tem_eventos and ("negado" in nl or "reprovad" in nl or l0.strip() == "negados"):
         tipo_arq = "negados"
     else:
         tipo_arq = None
     if tipo_arq and resultado.get(tipo_arq) is not None and resultado[tipo_arq].empty:
         try:
-            resultado[tipo_arq] = _limpar_bloco(list(abas.values())[0], tipo_arq)
+            resultado[tipo_arq] = _limpar_bloco(primeira, tipo_arq)
         except Exception as e:
             erros.append(f"Erro ao ler bloco único '{tipo_arq}' em '{nome_arquivo}': {e}")
 
@@ -403,14 +412,17 @@ def ler_aumento_limite(bytes_arquivo: bytes, nome_arquivo: str) -> dict:
 
         resultado = []
         for _, row in df_dados.iterrows():
-            # Dt revisão às vezes tem nome do analista
-            dt_revisao_raw = row.get("Dt revisão", row.get("Dt.revisão", ""))
+            # analista = quem deu o limite → coluna "Usuário".
+            # (fallback antigo: às vezes o nome vinha em "Dt revisão")
+            usuario_raw = row.get("Usuário", row.get("Usuario", row.get("Usuário ", "")))
             analista = ""
-            data_revisao = None
-            if isinstance(dt_revisao_raw, str) and not dt_revisao_raw.replace("/", "").replace("-", "").isdigit():
-                analista = _normalizar_nome(dt_revisao_raw)
+            data_revisao = _parse_data(row.get("Dt revisão", row.get("Dt.revisão", "")))
+            if usuario_raw is not None and str(usuario_raw).strip().lower() not in ("", "nan", "none"):
+                analista = _normalizar_nome(str(usuario_raw))
             else:
-                data_revisao = _parse_data(dt_revisao_raw)
+                dt_revisao_raw = row.get("Dt revisão", row.get("Dt.revisão", ""))
+                if isinstance(dt_revisao_raw, str) and not dt_revisao_raw.replace("/", "").replace("-", "").strip().isdigit():
+                    analista = _normalizar_nome(dt_revisao_raw)
 
             resultado.append({
                 "cod_parceiro": _int(row.get("Cód.Parc.", row.get("Cód. Parc."))),
