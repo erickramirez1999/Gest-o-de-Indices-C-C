@@ -36,6 +36,8 @@ PAGINAS_COBRANCA = {
     "cob_cobranca": "💰 Indices de Cobranca",
     "cob_performance": "⚡ Performance",
     "cob_geral": "📊 Geral",
+    "atend_dashboard": "💬 Atendimento",
+    "atend_upload": "📥 Atendimento · Upload",
 }
 
 PAGINAS_CREDITO = {
@@ -442,6 +444,12 @@ def renderizar_pagina(usuario, pagina: str):
     elif pagina == "cob_geral":
         from src.telas.cob_geral import renderizar_geral_cobranca
         renderizar_geral_cobranca(usuario)
+    elif pagina == "atend_dashboard":
+        from src.telas.atend_dashboard import renderizar_atend_dashboard
+        renderizar_atend_dashboard(usuario)
+    elif pagina == "atend_upload":
+        from src.telas.atend_upload import renderizar_atend_upload
+        renderizar_atend_upload(usuario)
     elif pagina == "cred_indicadores":
         from src.telas.cred_indicadores import renderizar_indicadores_credito
         renderizar_indicadores_credito(usuario)

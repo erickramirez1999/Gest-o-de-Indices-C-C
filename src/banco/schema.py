@@ -325,4 +325,19 @@ CREATE TABLE IF NOT EXISTS conciliacao_sobra (
 CREATE INDEX IF NOT EXISTS idx_conc_data ON conciliacao(data_conciliacao);
 CREATE INDEX IF NOT EXISTS idx_conc_sobra_fk ON conciliacao_sobra(conciliacao_id);
 
+
+-- ATENDIMENTO (Cobrança) — atendimentos encerrados por finalização
+CREATE TABLE IF NOT EXISTS atendimento (
+    id BIGSERIAL PRIMARY KEY,
+    data DATE NOT NULL,
+    mes_ano TEXT NOT NULL,
+    ano INTEGER NOT NULL,
+    motivo TEXT NOT NULL,
+    total INTEGER NOT NULL DEFAULT 0,
+    criado_por_id BIGINT REFERENCES usuario(id),
+    criado_em TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_atend_ano ON atendimento(ano);
+CREATE INDEX IF NOT EXISTS idx_atend_mes ON atendimento(mes_ano);
+
 """

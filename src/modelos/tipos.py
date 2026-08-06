@@ -4,7 +4,7 @@ PERMISSOES = {
     "ADMIN": "*",  # acesso total
     "GESTOR_COBRANCA": [
         "inicio", "meu_perfil", "upload",
-        "cob_acordo", "cob_cobranca", "cob_performance", "cob_geral",
+        "cob_acordo", "cob_cobranca", "cob_performance", "cob_geral", "atend_dashboard", "atend_upload",
         "cad_dashboard", "cad_upload",
         "conc_processo1", "conc_historico",
         "inad_dashboard", "inad_upload",
@@ -27,7 +27,7 @@ PERMISSOES = {
     ],
     "DIRETORIA": [
         "inicio", "meu_perfil",
-        "cob_acordo", "cob_cobranca", "cob_performance", "cob_geral",
+        "cob_acordo", "cob_cobranca", "cob_performance", "cob_geral", "atend_dashboard", "atend_upload",
         "cred_indicadores", "cred_reanalises", "cred_geral", "cred_comparativo", "cred_comparativos_salvos",
         "fin_gastos_mes", "fin_comparativos",
         "cad_dashboard",
