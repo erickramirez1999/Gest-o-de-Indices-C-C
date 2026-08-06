@@ -29,27 +29,38 @@ def renderizar_atend_dashboard(usuario):
         return
 
     c1, c2 = st.columns([1, 2])
-    ano = c1.selectbox("Ano", anos, index=0)
-    dados = repo_atendimento.buscar_atendimentos(ano)
+    opcoes_ano = ["Todos os anos"] + [str(a) for a in anos]
+    ano_esc = c1.selectbox("Ano", opcoes_ano, index=0)
+    todos = ano_esc == "Todos os anos"
+
+    dados = repo_atendimento.buscar_atendimentos(None if todos else int(ano_esc))
     df = pd.DataFrame(dados)
     if df.empty:
-        st.warning("Sem dados para este ano.")
+        st.warning("Sem dados para este período.")
         return
     df["data"] = pd.to_datetime(df["data"], errors="coerce")
     df["total"] = pd.to_numeric(df["total"], errors="coerce").fillna(0).astype(int)
     df["mes"] = df["data"].dt.month
 
-    meses_disp = sorted(df["mes"].dropna().unique())
-    opcoes = ["Ano inteiro"] + [f"{MESES[m-1]}/{ano}" for m in meses_disp]
-    escolha = c2.selectbox("Período", opcoes, index=0)
-
-    if escolha == "Ano inteiro":
+    if todos:
+        c2.selectbox("Período", ["Toda a vida"], index=0)
         d = df
-        titulo_periodo = f"Ano {ano}"
+        titulo_periodo = "Toda a vida"
+        modo_timeline = "ano"
     else:
-        mes_sel = meses_disp[opcoes.index(escolha) - 1]
-        d = df[df["mes"] == mes_sel]
-        titulo_periodo = escolha
+        ano = int(ano_esc)
+        meses_disp = sorted(df["mes"].dropna().unique())
+        opcoes = ["Ano inteiro"] + [f"{MESES[m-1]}/{ano}" for m in meses_disp]
+        escolha = c2.selectbox("Período", opcoes, index=0)
+        if escolha == "Ano inteiro":
+            d = df
+            titulo_periodo = f"Ano {ano}"
+            modo_timeline = "mes"
+        else:
+            mes_sel = meses_disp[opcoes.index(escolha) - 1]
+            d = df[df["mes"] == mes_sel]
+            titulo_periodo = escolha
+            modo_timeline = "dia"
 
     total = int(d["total"].sum())
     n_motivos = d["motivo"].nunique()
@@ -82,8 +93,13 @@ def renderizar_atend_dashboard(usuario):
 
     # ---- linha do tempo ----
     st.markdown(f"<h3 style='color:{AZUL_ESCURO}'>Linha do tempo</h3>", unsafe_allow_html=True)
-    if escolha == "Ano inteiro":
-        serie = df.groupby("mes")["total"].sum().reindex(range(1, 13), fill_value=0)
+    if modo_timeline == "ano":
+        serie = df.groupby("ano")["total"].sum().sort_index()
+        x = [str(a) for a in serie.index]
+        y = serie.values
+        titulo_x = "Ano"
+    elif modo_timeline == "mes":
+        serie = d.groupby("mes")["total"].sum().reindex(range(1, 13), fill_value=0)
         x = [MESES[m-1] for m in serie.index]
         y = serie.values
         titulo_x = "Mês"
