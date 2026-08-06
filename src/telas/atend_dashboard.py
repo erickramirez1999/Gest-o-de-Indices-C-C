@@ -75,21 +75,23 @@ def renderizar_atend_dashboard(usuario):
 
     # ---- por tipo de atendimento (motivo) ----
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown(f"<h3 style='color:{AZUL_ESCURO}'>Por tipo de atendimento</h3>", unsafe_allow_html=True)
-    por_motivo = d.groupby("motivo")["total"].sum().sort_values(ascending=False)
-    fig = go.Figure(go.Bar(
-        x=por_motivo.values[::-1], y=por_motivo.index[::-1], orientation="h",
-        marker_color=AZUL, text=[formatar_inteiro(v) for v in por_motivo.values[::-1]],
-        textposition="outside"))
-    fig.update_layout(height=max(320, 26 * len(por_motivo)), margin=dict(l=10, r=30, t=10, b=10),
-                      xaxis_title="Finalizações", plot_bgcolor="white", font=dict(size=12))
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-    tab = por_motivo.reset_index()
-    tab.columns = ["Motivo", "Total"]
-    tab["%"] = (tab["Total"] / total * 100).round(1).astype(str) + "%"
-    tab["Total"] = tab["Total"].map(formatar_inteiro)
-    st.dataframe(tab, use_container_width=True, hide_index=True)
+    if todos and len(anos) >= 2:
+        _comparativo(df, sorted(anos))
+    else:
+        st.markdown(f"<h3 style='color:{AZUL_ESCURO}'>Por tipo de atendimento</h3>", unsafe_allow_html=True)
+        por_motivo = d.groupby("motivo")["total"].sum().sort_values(ascending=False)
+        fig = go.Figure(go.Bar(
+            x=por_motivo.values[::-1], y=por_motivo.index[::-1], orientation="h",
+            marker_color=AZUL, text=[formatar_inteiro(v) for v in por_motivo.values[::-1]],
+            textposition="outside"))
+        fig.update_layout(height=max(320, 26 * len(por_motivo)), margin=dict(l=10, r=30, t=10, b=10),
+                          xaxis_title="Finalizações", plot_bgcolor="white", font=dict(size=12))
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        tab = por_motivo.reset_index()
+        tab.columns = ["Motivo", "Total"]
+        tab["%"] = (tab["Total"] / total * 100).round(1).astype(str) + "%"
+        tab["Total"] = tab["Total"].map(formatar_inteiro)
+        st.dataframe(tab, use_container_width=True, hide_index=True)
 
     # ---- linha do tempo ----
     st.markdown(f"<h3 style='color:{AZUL_ESCURO}'>Linha do tempo</h3>", unsafe_allow_html=True)
@@ -114,3 +116,46 @@ def renderizar_atend_dashboard(usuario):
     figl.update_layout(height=340, margin=dict(l=10, r=10, t=10, b=10), xaxis_title=titulo_x,
                        yaxis_title="Finalizações", plot_bgcolor="white", font=dict(size=12))
     st.plotly_chart(figl, use_container_width=True, config={"displayModeBar": False})
+
+
+def _comparativo(df, anos):
+    """Comparativo por motivo entre anos: totais por ano, variação e onde cresceu/diminuiu."""
+    st.markdown(f"<h3 style='color:{AZUL_ESCURO}'>Comparativo por tipo de atendimento (ano a ano)</h3>", unsafe_allow_html=True)
+
+    piv = df.pivot_table(index="motivo", columns="ano", values="total", aggfunc="sum", fill_value=0)
+    for a in anos:
+        if a not in piv.columns:
+            piv[a] = 0
+    piv = piv[anos]
+    ult, pen = anos[-1], anos[-2]
+    piv["delta"] = piv[ult] - piv[pen]
+    piv["delta_pct"] = piv.apply(lambda r: (r["delta"] / r[pen] * 100) if r[pen] else (100.0 if r["delta"] > 0 else 0.0), axis=1)
+    piv = piv.sort_values(ult, ascending=False)
+
+    # tabela
+    linhas = []
+    for motivo in piv.index:
+        reg = {"Motivo": motivo}
+        for a in anos:
+            reg[str(a)] = formatar_inteiro(int(piv.loc[motivo, a]))
+        d_abs = int(piv.loc[motivo, "delta"])
+        d_pct = piv.loc[motivo, "delta_pct"]
+        seta = "▲" if d_abs > 0 else ("▼" if d_abs < 0 else "—")
+        reg[f"Variação {pen}→{ult}"] = f"{seta} {formatar_inteiro(abs(d_abs))} ({d_pct:+.0f}%)"
+        linhas.append(reg)
+    st.dataframe(pd.DataFrame(linhas), use_container_width=True, hide_index=True)
+    st.caption(f"Variação = {ult} comparado a {pen}. Atenção: anos parciais podem distorcer a comparação.")
+
+    # gráfico divergente: onde cresceu (verde) / diminuiu (vermelho)
+    st.markdown(f"<h4 style='color:{AZUL_ESCURO}'>Onde cresceu e onde diminuiu ({pen} → {ult})</h4>", unsafe_allow_html=True)
+    dd = piv.sort_values("delta")
+    cores = [VERDE if v > 0 else ("#DC3545" if v < 0 else "#9AA5B1") for v in dd["delta"].values]
+    figd = go.Figure(go.Bar(
+        x=dd["delta"].values, y=dd.index, orientation="h", marker_color=cores,
+        text=[f"{'+' if v>0 else ''}{formatar_inteiro(int(v))}" for v in dd["delta"].values],
+        textposition="outside"))
+    figd.update_layout(height=max(340, 28 * len(dd)), margin=dict(l=10, r=40, t=10, b=10),
+                       xaxis_title=f"Diferença de finalizações ({pen} → {ult})",
+                       plot_bgcolor="white", font=dict(size=12))
+    figd.add_vline(x=0, line_width=1, line_color="#9AA5B1")
+    st.plotly_chart(figd, use_container_width=True, config={"displayModeBar": False})
