@@ -24,13 +24,24 @@ def formatar_pct(valor) -> str:
 
 
 def formatar_tempo(minutos) -> str:
+    """Formata minutos como dias/horas/min (e segundos abaixo de 1 min)."""
     try:
-        m = int(float(minutos))
-        if m >= 60:
-            h = m // 60
-            mn = m % 60
-            return f"{h}h {mn:02d}min"
-        return f"{m} min"
+        total = float(minutos)
+        if total <= 0:
+            return "0 min"
+        if total < 1:  # menos de 1 minuto → segundos
+            return f"{int(round(total * 60))}s"
+        m = int(round(total))
+        d, resto = divmod(m, 1440)
+        h, mn = divmod(resto, 60)
+        partes = []
+        if d:
+            partes.append(f"{d}d")
+        if h:
+            partes.append(f"{h}h")
+        if mn or not partes:
+            partes.append(f"{mn}min")
+        return " ".join(partes)
     except Exception:
         return "-"
 

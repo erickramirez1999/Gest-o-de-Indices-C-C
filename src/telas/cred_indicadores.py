@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 from src.utils.marca import AZUL_ESCURO, AMARELO, VERDE, AZUL_VIVO
-from src.utils.formatadores import formatar_brl, nome_mes
+from src.utils.formatadores import formatar_brl, nome_mes, formatar_tempo
 from src.utils.estilo import card_kpi, badge_variacao
 
 COR_AZUL = "#0071FE"
@@ -58,47 +58,50 @@ def _tempo_mes_a_mes(mes_sel: str):
     """Tempo Médio de Liberação (tempo de tela) — evolução mês a mês + mês selecionado."""
     import plotly.graph_objects as go
     from src.banco import repo_dados
+    try:
+        hist = pd.DataFrame(repo_dados.historico_credito_tempo())
+        if hist.empty:
+            return
+        for c in ("qtd_pedidos", "tempo_total_min", "tempo_medio_min"):
+            if c not in hist.columns:
+                hist[c] = 0
+            hist[c] = pd.to_numeric(hist[c], errors="coerce").fillna(0)
 
-    hist = pd.DataFrame(repo_dados.historico_credito_tempo())
-    if hist.empty:
-        return
-    for c in ("qtd_pedidos", "tempo_total_min", "tempo_medio_min"):
-        hist[c] = pd.to_numeric(hist.get(c), errors="coerce").fillna(0)
+        st.markdown("---")
+        st.markdown(f"<h3 style='color:{AZUL_ESCURO}'>⏱️ Tempo Médio de Liberação (mês a mês)</h3>", unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.markdown(f"<h3 style='color:{AZUL_ESCURO}'>⏱️ Tempo Médio de Liberação (mês a mês)</h3>", unsafe_allow_html=True)
+        gm = hist.groupby("mes_ano", as_index=False).agg(tt=("tempo_total_min", "sum"), qp=("qtd_pedidos", "sum"))
+        gm["tempo_medio"] = [round(tt / qp, 1) if qp else 0 for tt, qp in zip(gm["tt"], gm["qp"])]
+        gm = gm.sort_values("mes_ano")
+        gm["Mes"] = gm["mes_ano"].apply(nome_mes)
 
-    por_mes = (hist.groupby("mes_ano")
-               .apply(lambda g: (g["tempo_total_min"].sum() / g["qtd_pedidos"].sum()) if g["qtd_pedidos"].sum() else 0)
-               .reset_index(name="tempo_medio").sort_values("mes_ano"))
-    por_mes["Mes"] = por_mes["mes_ano"].apply(nome_mes)
-
-    c1, c2 = st.columns(2)
-    with c1:
-        fig = go.Figure(go.Scatter(
-            x=por_mes["Mes"], y=por_mes["tempo_medio"].round(1), mode="lines+markers",
-            line=dict(color=AZUL_VIVO, width=2.5), marker=dict(size=7),
-            fill="tozeroy", fillcolor="rgba(0,113,254,0.08)"))
-        fig.update_layout(title="Tempo Médio por Mês (min)", height=300,
-                          margin=dict(l=0, r=0, t=30, b=10), plot_bgcolor="white",
-                          yaxis=dict(ticksuffix=" min"))
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-    with c2:
-        d = hist[hist["mes_ano"] == mes_sel]
-        if d.empty:
-            st.caption("Sem tempo de tela para o mês selecionado.")
-        else:
-            por_ana = (d.groupby("analista")
-                       .apply(lambda g: (g["tempo_total_min"].sum() / g["qtd_pedidos"].sum()) if g["qtd_pedidos"].sum() else 0)
-                       .sort_values(ascending=True))
-            por_ana = por_ana[por_ana.index.astype(str).str.strip() != ""]
-            figa = go.Figure(go.Bar(
-                x=por_ana.values, y=por_ana.index, orientation="h", marker_color=AZUL_VIVO,
-                text=[f"{v:.1f} min" for v in por_ana.values], textposition="outside"))
-            figa.update_layout(title=f"Por Analista — {nome_mes(mes_sel)} (min)",
-                               height=max(300, 26 * len(por_ana)), margin=dict(l=0, r=30, t=30, b=10),
-                               plot_bgcolor="white", xaxis=dict(ticksuffix=" min"))
-            st.plotly_chart(figa, use_container_width=True, config={"displayModeBar": False})
+        c1, c2 = st.columns(2)
+        with c1:
+            fig = go.Figure(go.Scatter(
+                x=gm["Mes"], y=gm["tempo_medio"], mode="lines+markers",
+                line=dict(color=AZUL_VIVO, width=2.5), marker=dict(size=7),
+                fill="tozeroy", fillcolor="rgba(0,113,254,0.08)"))
+            fig.update_layout(title="Tempo Médio por Mês (min)", height=300,
+                              margin=dict(l=0, r=0, t=30, b=10), plot_bgcolor="white",
+                              yaxis=dict(ticksuffix=" min"))
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        with c2:
+            d = hist[hist["mes_ano"] == mes_sel]
+            if d.empty:
+                st.caption("Sem tempo de tela para o mês selecionado.")
+            else:
+                ga = d.groupby("analista", as_index=False).agg(tt=("tempo_total_min", "sum"), qp=("qtd_pedidos", "sum"))
+                ga["tm"] = [round(tt / qp, 1) if qp else 0 for tt, qp in zip(ga["tt"], ga["qp"])]
+                ga = ga[ga["analista"].astype(str).str.strip() != ""].sort_values("tm")
+                figa = go.Figure(go.Bar(
+                    x=ga["tm"], y=ga["analista"], orientation="h", marker_color=AZUL_VIVO,
+                    text=[formatar_tempo(v) for v in ga["tm"]], textposition="outside"))
+                figa.update_layout(title=f"Por Analista — {nome_mes(mes_sel)} (min)",
+                                   height=max(300, 26 * len(ga)), margin=dict(l=0, r=30, t=30, b=10),
+                                   plot_bgcolor="white", xaxis=dict(ticksuffix=" min"))
+                st.plotly_chart(figa, use_container_width=True, config={"displayModeBar": False})
+    except Exception as e:
+        st.caption(f"⏱️ Tempo médio indisponível no momento ({str(e)[:80]}).")
 
 
 def _dashboard_liberacoes(df: pd.DataFrame, df_ant: pd.DataFrame | None, periodo: str, periodo_ant: str | None):

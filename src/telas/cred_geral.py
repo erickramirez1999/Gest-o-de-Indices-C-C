@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 from src.utils.marca import AZUL_ESCURO, VERDE, AZUL_VIVO
-from src.utils.formatadores import formatar_brl, nome_mes
+from src.utils.formatadores import formatar_brl, nome_mes, formatar_tempo
 
 COR_AZUL = "#0071FE"
 COR_VERDE = "#0F8C3B"
@@ -27,7 +27,10 @@ def renderizar_geral_credito(usuario):
 
     lib_hist = pd.DataFrame(repo_dados.historico_credito_liberacoes())
     lim_hist = pd.DataFrame(repo_dados.historico_credito_limites())
-    tempo_hist = pd.DataFrame(repo_dados.historico_credito_tempo())
+    try:
+        tempo_hist = pd.DataFrame(repo_dados.historico_credito_tempo())
+    except Exception:
+        tempo_hist = pd.DataFrame()
 
     import plotly.graph_objects as go
 
@@ -93,44 +96,44 @@ def renderizar_geral_credito(usuario):
             st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
 
     # Evolução do Tempo Médio de Liberação (análise de crédito)
-    if not tempo_hist.empty:
-        st.markdown(f"<h3 style='color:{AZUL_ESCURO}'>⏱️ Evolução do Tempo Médio de Liberação</h3>", unsafe_allow_html=True)
-        t = tempo_hist.copy()
-        for c in ("qtd_pedidos", "tempo_total_min", "tempo_medio_min"):
-            t[c] = pd.to_numeric(t.get(c), errors="coerce").fillna(0)
-        # tempo médio geral do mês = total de minutos / total de pedidos
-        por_mes = (t.groupby("mes_ano")
-                   .apply(lambda g: pd.Series({
-                       "tempo_medio": (g["tempo_total_min"].sum() / g["qtd_pedidos"].sum()) if g["qtd_pedidos"].sum() else 0,
-                       "pedidos": int(g["qtd_pedidos"].sum()),
-                   }))
-                   .reset_index().sort_values("mes_ano"))
-        por_mes["Mes"] = por_mes["mes_ano"].apply(nome_mes)
+    try:
+        if not tempo_hist.empty:
+            st.markdown(f"<h3 style='color:{AZUL_ESCURO}'>⏱️ Evolução do Tempo Médio de Liberação</h3>", unsafe_allow_html=True)
+            t = tempo_hist.copy()
+            for c in ("qtd_pedidos", "tempo_total_min", "tempo_medio_min"):
+                if c not in t.columns:
+                    t[c] = 0
+                t[c] = pd.to_numeric(t[c], errors="coerce").fillna(0)
 
-        cg1, cg2 = st.columns(2)
-        with cg1:
-            figt = go.Figure(go.Scatter(
-                x=por_mes["Mes"], y=por_mes["tempo_medio"].round(1),
-                mode="lines+markers", line=dict(color=COR_AZUL, width=2.5),
-                marker=dict(size=7), fill="tozeroy", fillcolor="rgba(0,113,254,0.08)",
-                text=[f"{v:.1f} min" for v in por_mes["tempo_medio"]], hovertemplate="%{text}<extra></extra>"))
-            figt.update_layout(title="Tempo Médio por Mês (min)", height=300,
-                               margin=dict(l=0, r=0, t=30, b=10), plot_bgcolor="white",
-                               yaxis=dict(ticksuffix=" min"))
-            st.plotly_chart(figt, use_container_width=True, config={"displayModeBar": False})
-        with cg2:
-            # tempo médio por analista (média ponderada no período)
-            por_ana = (t.groupby("analista")
-                       .apply(lambda g: (g["tempo_total_min"].sum() / g["qtd_pedidos"].sum()) if g["qtd_pedidos"].sum() else 0)
-                       .sort_values(ascending=True))
-            por_ana = por_ana[por_ana.index.astype(str).str.strip() != ""]
-            figa = go.Figure(go.Bar(
-                x=por_ana.values, y=por_ana.index, orientation="h", marker_color=COR_AZUL,
-                text=[f"{v:.1f} min" for v in por_ana.values], textposition="outside"))
-            figa.update_layout(title="Tempo Médio por Analista (min)",
-                               height=max(300, 26 * len(por_ana)), margin=dict(l=0, r=30, t=30, b=10),
-                               plot_bgcolor="white", xaxis=dict(ticksuffix=" min"))
-            st.plotly_chart(figa, use_container_width=True, config={"displayModeBar": False})
+            gm = t.groupby("mes_ano", as_index=False).agg(tt=("tempo_total_min", "sum"), qp=("qtd_pedidos", "sum"))
+            gm["tempo_medio"] = [round(tt / qp, 1) if qp else 0 for tt, qp in zip(gm["tt"], gm["qp"])]
+            gm = gm.sort_values("mes_ano")
+            gm["Mes"] = gm["mes_ano"].apply(nome_mes)
+
+            cg1, cg2 = st.columns(2)
+            with cg1:
+                figt = go.Figure(go.Scatter(
+                    x=gm["Mes"], y=gm["tempo_medio"], mode="lines+markers",
+                    line=dict(color=COR_AZUL, width=2.5), marker=dict(size=7),
+                    fill="tozeroy", fillcolor="rgba(0,113,254,0.08)",
+                    text=[formatar_tempo(v) for v in gm["tempo_medio"]], hovertemplate="%{text}<extra></extra>"))
+                figt.update_layout(title="Tempo Médio por Mês (min)", height=300,
+                                   margin=dict(l=0, r=0, t=30, b=10), plot_bgcolor="white",
+                                   yaxis=dict(ticksuffix=" min"))
+                st.plotly_chart(figt, use_container_width=True, config={"displayModeBar": False})
+            with cg2:
+                ga = t.groupby("analista", as_index=False).agg(tt=("tempo_total_min", "sum"), qp=("qtd_pedidos", "sum"))
+                ga["tm"] = [round(tt / qp, 1) if qp else 0 for tt, qp in zip(ga["tt"], ga["qp"])]
+                ga = ga[ga["analista"].astype(str).str.strip() != ""].sort_values("tm")
+                figa = go.Figure(go.Bar(
+                    x=ga["tm"], y=ga["analista"], orientation="h", marker_color=COR_AZUL,
+                    text=[formatar_tempo(v) for v in ga["tm"]], textposition="outside"))
+                figa.update_layout(title="Tempo Médio por Analista (min)",
+                                   height=max(300, 26 * len(ga)), margin=dict(l=0, r=30, t=30, b=10),
+                                   plot_bgcolor="white", xaxis=dict(ticksuffix=" min"))
+                st.plotly_chart(figa, use_container_width=True, config={"displayModeBar": False})
+    except Exception as e:
+        st.caption(f"⏱️ Tempo médio indisponível no momento ({str(e)[:80]}).")
 
     # Evolução de limites
     if not lim_hist.empty:
