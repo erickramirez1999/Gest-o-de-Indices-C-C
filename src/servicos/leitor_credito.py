@@ -187,21 +187,19 @@ def ler_tempo_tela(bytes_arquivo: bytes, nome_arquivo: str) -> dict:
 
 
 def _tempo_para_minutos(v) -> float:
-    """Converte strings como '3 minutos', '2 horas 5 minutos', '1 horas 1 minutos' para minutos."""
+    """Converte '3 minutos', '2 horas 5 minutos', '2 Dias 16 horas 13 minutos',
+    '45 segundos' etc. para minutos. Trata dias, horas, minutos e segundos."""
     try:
         if v is None or (isinstance(v, float) and pd.isna(v)):
             return 0.0
         s = str(v).lower().strip()
-        horas = 0
-        minutos = 0
-        import re
-        h_match = re.search(r"(\d+)\s*hora", s)
-        m_match = re.search(r"(\d+)\s*minuto", s)
-        if h_match:
-            horas = int(h_match.group(1))
-        if m_match:
-            minutos = int(m_match.group(1))
-        return horas * 60 + minutos
+        if not s or s in ("nan", "none", "-"):
+            return 0.0
+        dias = int(m.group(1)) if (m := re.search(r"(\d+)\s*dia", s)) else 0
+        horas = int(m.group(1)) if (m := re.search(r"(\d+)\s*hora", s)) else 0
+        minutos = int(m.group(1)) if (m := re.search(r"(\d+)\s*min", s)) else 0
+        segundos = int(m.group(1)) if (m := re.search(r"(\d+)\s*seg", s)) else 0
+        return dias * 1440 + horas * 60 + minutos + segundos / 60.0
     except Exception:
         return 0.0
 
