@@ -29,13 +29,14 @@ SOBRA = "Sobrando (Monday)"
 DESPESA = "Despesas"
 TARIFA = "Tarifas"
 APLICACAO = "Aplicação"
+OUTROS = "Outros"
 
 ID_COBCLOUD = "3455/000554357"
 ID_BOLETO_CB = "3455/003475395"
 
 # ordem de exibição no resumo
 ORDEM_RESUMO = [QR_BOLETO, PDV, COBCLOUD, BOLETO_CB, TRANSF, TED, DOC,
-                SOBRA, DESPESA, TARIFA, APLICACAO]
+                SOBRA, DESPESA, TARIFA, APLICACAO, OUTROS]
 
 
 def _categoria_extrato(hist: str, valor: float) -> str:
@@ -47,19 +48,19 @@ def _categoria_extrato(hist: str, valor: float) -> str:
         return BOLETO_CB
     if "PIX RECEBIDO" in h and valor > 0:
         return "PIX"  # entra no casamento → sobrando
+    if "APLICA" in h or "RESGATE" in h:
+        return APLICACAO  # aplicação e resgate (ContaMax) = movimentação financeira
     if "TRANSFERENCIA ENTRE CONTAS" in h or "TRANSF ENTRE CONTAS" in h:
         return TRANSF
-    if re.search(r"\bTED\b", h):
+    if re.search(r"\bTED\b", h) and valor > 0:      # TED só quando é recebimento
         return TED
-    if re.search(r"\bDOC\b", h):
+    if re.search(r"\bDOC\b", h) and valor > 0:      # DOC só quando é recebimento
         return DOC
-    if "TARIFA" in h:
+    if "TARIFA" in h or re.search(r"\bTAR\b", h):   # TARIFA, TAR LIQ, TAR BAIXA...
         return TARIFA
-    if "APLICA" in h:
-        return APLICACAO
     if valor < 0:
         return DESPESA
-    return "OUTROS"
+    return OUTROS
 
 
 def processar_conciliacao(arquivos: list[tuple[bytes, str]]) -> dict:
@@ -99,7 +100,7 @@ def processar_conciliacao(arquivos: list[tuple[bytes, str]]) -> dict:
     extrato_df["cat"] = [_categoria_extrato(h, v) for h, v in zip(extrato_df["historico"], extrato_df["valor"])]
     tot = defaultdict(lambda: [0, 0.0])  # cat -> [qtd, soma]
     for _, r in extrato_df.iterrows():
-        if r["cat"] in ("PIX", "OUTROS"):
+        if r["cat"] == "PIX":
             continue
         tot[r["cat"]][0] += 1
         tot[r["cat"]][1] += float(r["valor"] or 0)
@@ -138,7 +139,7 @@ def processar_conciliacao(arquivos: list[tuple[bytes, str]]) -> dict:
         {"tipo": PDV, "qtd": qtd_pdv, "valor": val_pdv},
         cat_tot(COBCLOUD), cat_tot(BOLETO_CB), cat_tot(TRANSF), cat_tot(TED), cat_tot(DOC),
         {"tipo": SOBRA, "qtd": qtd_sobra, "valor": total_sobra},
-        cat_tot(DESPESA), cat_tot(TARIFA), cat_tot(APLICACAO),
+        cat_tot(DESPESA), cat_tot(TARIFA), cat_tot(APLICACAO), cat_tot(OUTROS),
     ]
     res["sobra"] = sorted(sobra, key=lambda s: -s["valor"])
     res["sobra_ambigua"] = sorted(sobra_ambigua, key=lambda g: -g["valor"])
@@ -291,7 +292,7 @@ def gerar_xlsx_conciliacao(resumo: list[dict], sobra: list[dict], data_label: st
     AZUL = "041747"; VERM = "DC3545"; CINZA = "6C757D"
     COR = {QR_BOLETO: "0F8C3B", PDV: "0071FE", COBCLOUD: "041747", BOLETO_CB: "0071FE",
            TRANSF: "6C757D", TED: "6C757D", DOC: "6C757D", SOBRA: "DC3545",
-           DESPESA: "B00020", TARIFA: "B00020", APLICACAO: "7B5800"}
+           DESPESA: "B00020", TARIFA: "B00020", APLICACAO: "7B5800", OUTROS: "6C757D"}
     thin = Side(style="thin", color="D9DCE3")
 
     def F(**k): return Font(name="Arial", **k)

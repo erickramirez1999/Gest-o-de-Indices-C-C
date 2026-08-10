@@ -303,6 +303,7 @@ CREATE TABLE IF NOT EXISTS conciliacao (
     qtd_ted INTEGER, valor_ted NUMERIC,
     qtd_doc INTEGER, valor_doc NUMERIC,
     qtd_tarifa INTEGER, valor_tarifa NUMERIC,
+    qtd_outros INTEGER, valor_outros NUMERIC,
     qtd_sobra INTEGER, valor_sobra NUMERIC,
     qtd_despesa INTEGER, valor_despesa NUMERIC,
     qtd_aplicacao INTEGER, valor_aplicacao NUMERIC,

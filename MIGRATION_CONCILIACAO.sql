@@ -61,3 +61,8 @@ ALTER TABLE conciliacao_sobra ADD COLUMN IF NOT EXISTS cod_parceiro TEXT;
 ALTER TABLE conciliacao_sobra ADD COLUMN IF NOT EXISTS nome_parceiro TEXT;
 ALTER TABLE conciliacao_sobra ADD COLUMN IF NOT EXISTS nota TEXT;
 NOTIFY pgrst, 'reload schema';
+
+-- Categoria "Outros" (históricos ainda não classificados) + RESGATE já entra em Aplicação
+ALTER TABLE conciliacao ADD COLUMN IF NOT EXISTS qtd_outros INTEGER;
+ALTER TABLE conciliacao ADD COLUMN IF NOT EXISTS valor_outros NUMERIC;
+NOTIFY pgrst, 'reload schema';

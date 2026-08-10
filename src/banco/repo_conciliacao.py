@@ -10,7 +10,7 @@ COL = {
     "QR Boleto": "qrboleto", "PDV": "pdv", "CobCloud": "cobcloud",
     "Boleto Cód Barras": "boletocb", "Transferência entre contas": "transfconta",
     "TED": "ted", "DOC": "doc", "Sobrando (Monday)": "sobra",
-    "Despesas": "despesa", "Tarifas": "tarifa", "Aplicação": "aplicacao",
+    "Despesas": "despesa", "Tarifas": "tarifa", "Aplicação": "aplicacao", "Outros": "outros",
 }
 
 
@@ -74,7 +74,7 @@ def listar_conciliacoes() -> list[dict]:
 def reconstruir_resumo(r: dict) -> list[dict]:
     """Monta o resumo (na ordem) a partir das colunas do header."""
     ordem = ["QR Boleto", "PDV", "CobCloud", "Boleto Cód Barras", "Transferência entre contas",
-             "TED", "DOC", "Sobrando (Monday)", "Despesas", "Tarifas", "Aplicação"]
+             "TED", "DOC", "Sobrando (Monday)", "Despesas", "Tarifas", "Aplicação", "Outros"]
     out = []
     for tipo in ordem:
         col = COL[tipo]

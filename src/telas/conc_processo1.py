@@ -13,7 +13,7 @@ from src.utils.formatadores import formatar_brl
 COR = {"QR Boleto": "#0F8C3B", "PDV": "#0071FE", "CobCloud": "#041747",
        "Boleto Cód Barras": "#0071FE", "Transferência entre contas": "#6C757D",
        "TED": "#6C757D", "DOC": "#6C757D", "Sobrando (Monday)": "#DC3545",
-       "Despesas": "#B00020", "Tarifas": "#B00020", "Aplicação": "#7B5800"}
+       "Despesas": "#B00020", "Tarifas": "#B00020", "Aplicação": "#7B5800", "Outros": "#6C757D"}
 
 
 def _card(x):
