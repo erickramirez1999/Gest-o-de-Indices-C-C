@@ -294,3 +294,17 @@ def historico_credito_limites() -> list[dict]:
         if len(r.data) < 1000: break
         offset += 1000
     return todos
+
+
+def historico_credito_tempo() -> list[dict]:
+    sb = obter_conexao()
+    todos, offset = [], 0
+    while True:
+        r = sb.table("dados_credito_tempo_tela").select(
+            "mes_ano,analista,qtd_pedidos,tempo_total_min,tempo_medio_min"
+        ).range(offset, offset + 999).execute()
+        if not r.data: break
+        todos += r.data
+        if len(r.data) < 1000: break
+        offset += 1000
+    return todos
