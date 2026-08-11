@@ -119,43 +119,61 @@ def renderizar_atend_dashboard(usuario):
 
 
 def _comparativo(df, anos):
-    """Comparativo por motivo entre anos: totais por ano, variação e onde cresceu/diminuiu."""
+    """Comparativo por motivo entre anos. A variação é medida no MESMO período
+    que os dois anos têm (proporcional), evitando distorção por ano incompleto."""
     st.markdown(f"<h3 style='color:{AZUL_ESCURO}'>Comparativo por tipo de atendimento (ano a ano)</h3>", unsafe_allow_html=True)
 
+    # Overview: total de cada ano (cheio, informativo)
     piv = df.pivot_table(index="motivo", columns="ano", values="total", aggfunc="sum", fill_value=0)
     for a in anos:
         if a not in piv.columns:
             piv[a] = 0
-    piv = piv[anos]
+    piv = piv[anos].sort_values(anos[-1], ascending=False)
+    over = [{"Motivo": m, **{f"{a} (total)": formatar_inteiro(int(piv.loc[m, a])) for a in anos}} for m in piv.index]
+    st.markdown("<b>Total por ano</b> (informativo)", unsafe_allow_html=True)
+    st.dataframe(pd.DataFrame(over), use_container_width=True, hide_index=True)
+
     ult, pen = anos[-1], anos[-2]
-    piv["delta"] = piv[ult] - piv[pen]
-    piv["delta_pct"] = piv.apply(lambda r: (r["delta"] / r[pen] * 100) if r[pen] else (100.0 if r["delta"] > 0 else 0.0), axis=1)
-    piv = piv.sort_values(ult, ascending=False)
+    meses_ult = set(pd.to_numeric(df[df["ano"] == ult]["mes"], errors="coerce").dropna().astype(int))
+    meses_pen = set(pd.to_numeric(df[df["ano"] == pen]["mes"], errors="coerce").dropna().astype(int))
+    comuns = sorted(meses_ult & meses_pen)
+    if not comuns:
+        st.info(f"{pen} e {ult} não têm meses em comum para comparar.")
+        return
+    periodo = MESES[comuns[0] - 1] if len(comuns) == 1 else f"{MESES[comuns[0]-1]}–{MESES[comuns[-1]-1]}"
 
-    # tabela
+    sub = df[(df["ano"].isin([pen, ult])) & (df["mes"].isin(comuns))]
+    pv = sub.pivot_table(index="motivo", columns="ano", values="total", aggfunc="sum", fill_value=0)
+    for a in (pen, ult):
+        if a not in pv.columns:
+            pv[a] = 0
+    pv["delta"] = pv[ult] - pv[pen]
+    pv["delta_pct"] = pv.apply(lambda r: (r["delta"] / r[pen] * 100) if r[pen] else (100.0 if r["delta"] > 0 else 0.0), axis=1)
+    pv = pv.sort_values(ult, ascending=False)
+
+    st.markdown(f"<h4 style='color:{AZUL_ESCURO}'>Comparação proporcional — mesmo período dos dois anos ({periodo})</h4>", unsafe_allow_html=True)
     linhas = []
-    for motivo in piv.index:
-        reg = {"Motivo": motivo}
-        for a in anos:
-            reg[str(a)] = formatar_inteiro(int(piv.loc[motivo, a]))
-        d_abs = int(piv.loc[motivo, "delta"])
-        d_pct = piv.loc[motivo, "delta_pct"]
+    for m in pv.index:
+        d_abs = int(pv.loc[m, "delta"]); d_pct = pv.loc[m, "delta_pct"]
         seta = "▲" if d_abs > 0 else ("▼" if d_abs < 0 else "—")
-        reg[f"Variação {pen}→{ult}"] = f"{seta} {formatar_inteiro(abs(d_abs))} ({d_pct:+.0f}%)"
-        linhas.append(reg)
+        linhas.append({
+            "Motivo": m,
+            f"{pen} ({periodo})": formatar_inteiro(int(pv.loc[m, pen])),
+            f"{ult} ({periodo})": formatar_inteiro(int(pv.loc[m, ult])),
+            "Variação": f"{seta} {formatar_inteiro(abs(d_abs))} ({d_pct:+.0f}%)",
+        })
     st.dataframe(pd.DataFrame(linhas), use_container_width=True, hide_index=True)
-    st.caption(f"Variação = {ult} comparado a {pen}. Atenção: anos parciais podem distorcer a comparação.")
+    st.caption(f"Comparação feita só nos meses que {pen} e {ult} têm ({periodo}), para ser proporcional — não usa o ano incompleto inteiro.")
 
-    # gráfico divergente: onde cresceu (verde) / diminuiu (vermelho)
-    st.markdown(f"<h4 style='color:{AZUL_ESCURO}'>Onde cresceu e onde diminuiu ({pen} → {ult})</h4>", unsafe_allow_html=True)
-    dd = piv.sort_values("delta")
+    st.markdown(f"<h4 style='color:{AZUL_ESCURO}'>Onde cresceu e onde diminuiu ({periodo}: {pen} → {ult})</h4>", unsafe_allow_html=True)
+    dd = pv.sort_values("delta")
     cores = [VERDE if v > 0 else ("#DC3545" if v < 0 else "#9AA5B1") for v in dd["delta"].values]
     figd = go.Figure(go.Bar(
         x=dd["delta"].values, y=dd.index, orientation="h", marker_color=cores,
         text=[f"{'+' if v>0 else ''}{formatar_inteiro(int(v))}" for v in dd["delta"].values],
         textposition="outside"))
     figd.update_layout(height=max(340, 28 * len(dd)), margin=dict(l=10, r=40, t=10, b=10),
-                       xaxis_title=f"Diferença de finalizações ({pen} → {ult})",
+                       xaxis_title=f"Diferença de finalizações no mesmo período ({periodo})",
                        plot_bgcolor="white", font=dict(size=12))
     figd.add_vline(x=0, line_width=1, line_color="#9AA5B1")
     st.plotly_chart(figd, use_container_width=True, config={"displayModeBar": False})
