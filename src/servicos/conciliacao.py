@@ -28,7 +28,7 @@ DOC = "DOC"
 SOBRA = "Sobrando (Monday)"
 DESPESA = "Despesas"
 TARIFA = "Tarifas"
-APLICACAO = "Aplicação"
+APLICACAO = "Aplicações/Resgate"
 OUTROS = "Outros"
 
 ID_COBCLOUD = "3455/000554357"
