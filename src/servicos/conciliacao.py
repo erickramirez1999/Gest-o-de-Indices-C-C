@@ -17,6 +17,7 @@ from collections import Counter, defaultdict
 from typing import Optional
 
 import pandas as pd
+from src.servicos import excel_seguro  # noqa: F401  (leitura tolerante de Excel)
 
 QR_BOLETO = "QR Boleto"
 PDV = "PDV"
